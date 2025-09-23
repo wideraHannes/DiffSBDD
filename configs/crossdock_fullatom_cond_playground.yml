@@ -1,23 +1,23 @@
-run_name: "SE3-cond-full"
+run_name: "SE3-cond-full-playground"
 logdir: "logs"
 wandb_params:
-  mode: "online" # disabled, offline, online
+  mode: "disabled" # disabled, offline, online - disabled for playground
   entity: "johannes.widera@codecentric.de"
-  group: "crossdock"
-dataset: "crossdock"
-datadir: "data/processed_crossdock_noH_full"
+  group: "crossdock-playground"
+dataset: "crossdock_full"
+datadir: "data/processed_crossdock_noH_full_temp"
 enable_progress_bar: True
 num_sanity_val_steps: 0
 
 mode: "pocket_conditioning" # joint, pocket_conditioning
 pocket_representation: "full-atom" # CA, full-atom
 virtual_nodes: False
-batch_size: 16
+batch_size: 1  # Reduced to 1 to debug tensor mismatch
 lr: 1.0e-3
 noise_factor: 1.0
-n_epochs: 1000
+n_epochs: 2  # Reduced epochs for faster testing
 num_workers: 0
-gpus: 4
+gpus: 0  # No GPUs for CPU-only training
 clip_grad: True
 augment_rotation: False
 augment_noise: 0
@@ -30,7 +30,7 @@ loss_params:
   clamp_lj: 3.0
 
 egnn_params:
-  device: "cuda"
+  device: "cpu"
   edge_cutoff_ligand: null
   edge_cutoff_pocket: 5.0
   edge_cutoff_interaction: 5.0
@@ -53,12 +53,12 @@ diffusion_params:
   diffusion_loss_type: "l2" # vlb, l2
   normalize_factors: [1, 4] #[10, 4]  # [x, h]
 
-eval_epochs: 50
-visualize_sample_epoch: 50
-visualize_chain_epoch: 50
+eval_epochs: 5  # More frequent evaluation for playground
+visualize_sample_epoch: 5  # More frequent visualization for playground
+visualize_chain_epoch: 5  # More frequent visualization for playground
 eval_params:
-  n_eval_samples: 100
-  eval_batch_size: 100
-  smiles_file: "/path/to/train_smiles.npy"
-  n_visualize_samples: 5
+  n_eval_samples: 10  # Reduced for playground
+  eval_batch_size: 10  # Reduced for playground
+  smiles_file: "data/processed_crossdock_noH_full_temp/train_smiles.npy"
+  n_visualize_samples: 2  # Reduced for playground
   keep_frames: 100

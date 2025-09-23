@@ -109,14 +109,25 @@ if __name__ == "__main__":
         mode="min",
     )
 
+    # Configure accelerator and devices based on GPU availability
+    if args.gpus > 0:
+        accelerator = 'gpu'
+        devices = args.gpus
+        strategy = 'ddp' if args.gpus > 1 else 'auto'
+    else:
+        accelerator = 'cpu'
+        devices = 'auto'
+        strategy = 'auto'
+
     trainer = pl.Trainer(
         max_epochs=args.n_epochs,
         logger=logger,
         callbacks=[checkpoint_callback],
         enable_progress_bar=args.enable_progress_bar,
         num_sanity_val_steps=args.num_sanity_val_steps,
-        accelerator='gpu', devices=args.gpus,
-        strategy=('ddp' if args.gpus > 1 else None)
+        accelerator=accelerator, 
+        devices=devices,
+        strategy=strategy
     )
 
     trainer.fit(model=pl_module, ckpt_path=ckpt_path)

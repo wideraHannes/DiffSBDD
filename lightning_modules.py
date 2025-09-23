@@ -433,7 +433,7 @@ class LigandPocketDDPM(pl.LightningModule):
     def test_step(self, data, *args):
         self._shared_eval(data, "test", *args)
 
-    def validation_epoch_end(self, validation_step_outputs):
+    def on_validation_epoch_end(self):
         # Perform validation on single GPU
         if not self.trainer.is_global_zero:
             return
@@ -586,7 +586,9 @@ class LigandPocketDDPM(pl.LightningModule):
             )
 
             ligand, pocket = self.get_ligand_and_pocket(batch)
-            receptors.extend([self.get_full_path(x) for x in batch["receptors"]])
+            # Use 'names' if 'receptors' key doesn't exist
+            receptor_names = batch.get("receptors", batch.get("names", []))
+            receptors.extend([self.get_full_path(x) for x in receptor_names])
 
             if self.virtual_nodes:
                 num_nodes_lig = self.max_num_nodes
@@ -1028,7 +1030,7 @@ class LigandPocketDDPM(pl.LightningModule):
         return molecules
 
     def configure_gradient_clipping(
-        self, optimizer, optimizer_idx, gradient_clip_val, gradient_clip_algorithm
+        self, optimizer, gradient_clip_val=None, gradient_clip_algorithm=None
     ):
         if not self.clip_grad:
             return

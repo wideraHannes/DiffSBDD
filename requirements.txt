@@ -1,0 +1,20 @@
+
+# ───────── core deep-learning stack ─────────
+# If you have CUDA-10.2, replace "+cpu" wheels with "+cu102"
+torch==1.12.1
+torchvision==0.13.1
+torchaudio==0.12.1
+
+pytorch-lightning==1.7.4
+torchmetrics==0.11.4          # ← must stay ≤0.11.x for PL 1.7
+torch-scatter==2.0.9
+
+# ───────── monitoring & science libs ────────
+wandb==0.13.1
+biopython==1.79
+imageio==2.21.2
+scipy==1.7.3
+seaborn                     # unpinned (visualisation only)
+
+# ───────── cheminformatics ─────────
+rdkit-pypi==2022.3.5

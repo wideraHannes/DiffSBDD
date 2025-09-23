@@ -140,6 +140,156 @@ training:
   lr: 1e-4 # How fast the AI learns (learning rate)
 ```
 
+## 🎛️ Training & Configuration Insights
+
+_Hard-learned lessons from getting the training pipeline working! These insights will save you hours of debugging._
+
+### Environment Setup
+
+```bash
+# Use uv for dependency management (much faster than pip)
+uv sync  # Installs all dependencies
+uv run python train.py --config your_config.yml  # Run with managed environment
+```
+
+### Critical Configuration Fixes
+
+#### 1. Dataset Compatibility Issue
+
+**Problem**: Tensor dimension mismatch (14 vs 13 features)
+
+```yaml
+# ❌ WRONG - causes tensor errors
+dataset: "crossdock"  # Expects 10 atom types
+
+# ✅ CORRECT - matches processed data
+dataset: "crossdock_full"  # Has 11 atom types including 'others'
+```
+
+#### 2. PyTorch Lightning 2.x Compatibility
+
+The codebase was written for Lightning 1.x, needed these fixes:
+
+```python
+# ❌ OLD (v1.x): validation_epoch_end(self, outputs)
+# ✅ NEW (v2.x): on_validation_epoch_end(self)
+
+# ❌ OLD: configure_gradient_clipping(self, optimizer, optimizer_idx, ...)
+# ✅ NEW: configure_gradient_clipping(self, optimizer, ...)
+```
+
+#### 3. CPU vs GPU Training Setup
+
+```yaml
+# For CPU training (development/testing)
+egnn_params:
+  device: "cpu"
+gpus: 0
+batch_size: 1-2  # Keep small for CPU
+
+# For GPU training (production)
+egnn_params:
+  device: "cuda"
+gpus: 1-4
+batch_size: 16-32  # Can be larger with GPU
+```
+
+### Playground Configuration Template
+
+_Perfect for quick testing and development:_
+
+```yaml
+# configs/my_playground.yml
+run_name: "my-experiment-playground"
+dataset: "crossdock_full" # IMPORTANT: Use full dataset
+datadir: "data/processed_crossdock_noH_full_temp"
+
+# Quick testing settings
+n_epochs: 2
+batch_size: 1
+gpus: 0 # CPU only
+egnn_params:
+  device: "cpu"
+
+# Disable wandb for local testing
+wandb_params:
+  mode: "disabled"
+
+# Frequent evaluation for development
+eval_epochs: 1
+visualize_sample_epoch: 1
+```
+
+### Training Pipeline Success Checklist
+
+✅ **Environment**: `uv sync` completes without errors  
+✅ **Data**: Check dataset keys match expectations (`names` vs `receptors`)  
+✅ **Config**: Use `crossdock_full` for 11-feature data  
+✅ **Dependencies**: PyTorch Lightning 2.x compatibility fixes applied  
+✅ **Resources**: Batch size appropriate for CPU/GPU  
+✅ **Output**: Checkpoints saved to `logs/{run_name}/checkpoints/`
+
+### Model Size & Performance
+
+```
+Model: ConditionalDDPM
+├── Parameters: 4.8M trainable, 501 non-trainable
+├── Size: ~19.3 MB
+├── Training Speed: ~2.2 it/s on CPU, ~20+ it/s on GPU
+└── Memory: ~1-2GB RAM for CPU training
+```
+
+### Checkpoint Management
+
+Automatic checkpointing creates:
+
+```
+logs/{run_name}/checkpoints/
+├── last.ckpt                    # Most recent state
+├── best-model-epoch=XX.ckpt     # Best validation loss
+└── last-v{N}.ckpt               # Version backups
+```
+
+### Common Debugging Commands
+
+```bash
+# Quick data inspection
+python -c "
+import torch
+data = torch.load('data/processed_crossdock_noH_full_temp/train.npz', allow_pickle=True)
+print('Keys:', list(data.keys()))
+print('Shapes:', {k: v.shape for k,v in data.items() if hasattr(v, 'shape')})
+"
+
+# Check model architecture
+uv run python -c "
+from lightning_modules import LigandPocketDDPM
+model = LigandPocketDDPM(dataset='crossdock_full', ...)
+print(model)
+"
+
+# Monitor training progress
+tail -f logs/{run_name}/train.log
+```
+
+### Performance Optimization Tips
+
+1. **Start Small**: Use playground config first
+2. **GPU Memory**: Reduce batch_size if CUDA OOM errors
+3. **CPU Training**: Expect ~10x slower than GPU
+4. **Data Loading**: Set `num_workers=0` for debugging
+5. **Validation**: Disable expensive metrics during development
+
+### Troubleshooting Guide
+
+| Error                                | Solution                                 |
+| ------------------------------------ | ---------------------------------------- |
+| `KeyError: 'receptors'`              | Use `crossdock_full` dataset config      |
+| `RuntimeError: tensor size mismatch` | Check atom feature dimensions (10 vs 11) |
+| `TypeError: missing optimizer_idx`   | Update Lightning methods for v2.x        |
+| `CUDA OOM`                           | Reduce batch_size or use CPU             |
+| `ModuleNotFoundError`                | Run `uv sync` first                      |
+
 ## 📝 Next Actions
 
 _Your roadmap to thesis success! These are concrete steps organized by when you need to do them._

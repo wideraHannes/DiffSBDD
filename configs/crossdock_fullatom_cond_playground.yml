@@ -1,7 +1,7 @@
 run_name: "SE3-cond-full-playground"
 logdir: "logs"
 wandb_params:
-  mode: "disabled" # disabled, offline, online - disabled for playground
+  mode: "offline" # disabled, offline, online - disabled for playground
   entity: "johannes.widera@codecentric.de"
   group: "crossdock-playground"
 dataset: "crossdock_full"
@@ -12,12 +12,12 @@ num_sanity_val_steps: 0
 mode: "pocket_conditioning" # joint, pocket_conditioning
 pocket_representation: "full-atom" # CA, full-atom
 virtual_nodes: False
-batch_size: 1  # Reduced to 1 to debug tensor mismatch
+batch_size: 4
 lr: 1.0e-3
 noise_factor: 1.0
-n_epochs: 2  # Reduced epochs for faster testing
+n_epochs: 50 # Reduced epochs for faster testing
 num_workers: 0
-gpus: 0  # No GPUs for CPU-only training
+gpus: 0 # No GPUs for CPU-only training
 clip_grad: True
 augment_rotation: False
 augment_noise: 0
@@ -53,12 +53,12 @@ diffusion_params:
   diffusion_loss_type: "l2" # vlb, l2
   normalize_factors: [1, 4] #[10, 4]  # [x, h]
 
-eval_epochs: 5  # More frequent evaluation for playground
-visualize_sample_epoch: 5  # More frequent visualization for playground
-visualize_chain_epoch: 5  # More frequent visualization for playground
+eval_epochs: 5 # More frequent evaluation for playground
+visualize_sample_epoch: 5 # More frequent visualization for playground
+visualize_chain_epoch: 5 # More frequent visualization for playground
 eval_params:
-  n_eval_samples: 10  # Reduced for playground
-  eval_batch_size: 10  # Reduced for playground
+  n_eval_samples: 10 # Reduced for playground
+  eval_batch_size: 10 # Reduced for playground
   smiles_file: "data/processed_crossdock_noH_full_temp/train_smiles.npy"
-  n_visualize_samples: 2  # Reduced for playground
+  n_visualize_samples: 2 # Reduced for playground
   keep_frames: 100

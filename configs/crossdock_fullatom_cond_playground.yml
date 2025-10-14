@@ -1,8 +1,8 @@
 run_name: "SE3-cond-full-playground"
 logdir: "logs"
 wandb_params:
-  mode: "offline" # disabled, offline, online - disabled for playground
-  entity: "johannes.widera@codecentric.de"
+  mode: "online" # disabled, offline, online - now online for real-time logging
+  entity: null # Let wandb use your default personal account
   group: "crossdock-playground"
 dataset: "crossdock_full"
 datadir: "data/processed_crossdock_noH_full_temp"

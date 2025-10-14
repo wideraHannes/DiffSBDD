@@ -1,6 +1,7 @@
 # 📅 Training Diary - September 23, 2025
 
 ## 🎯 Today's Mission
+
 Successfully set up and run DiffSBDD training pipeline with ESM-C thesis preparation.
 
 ---
@@ -8,6 +9,7 @@ Successfully set up and run DiffSBDD training pipeline with ESM-C thesis prepara
 ## ✅ **Major Accomplishments**
 
 ### 🛠️ **1. Environment & Pipeline Setup**
+
 - **Environment Management**: Successfully migrated to `uv` for faster dependency management
   - `uv sync` working flawlessly
   - All dependencies properly resolved
@@ -16,26 +18,31 @@ Successfully set up and run DiffSBDD training pipeline with ESM-C thesis prepara
 ### 🔧 **2. Critical Bug Fixes & Compatibility Issues**
 
 #### **PyTorch Lightning 2.x Compatibility** 🎯
+
 **Problem**: The codebase was written for PyTorch Lightning 1.x, but current environment uses 2.x
 **Solutions Implemented**:
+
 ```python
 # Fixed validation method signature
 # OLD: validation_epoch_end(self, validation_step_outputs)
 # NEW: on_validation_epoch_end(self)
 
-# Fixed gradient clipping method signature  
+# Fixed gradient clipping method signature
 # OLD: configure_gradient_clipping(self, optimizer, optimizer_idx, ...)
 # NEW: configure_gradient_clipping(self, optimizer, ...)
 ```
 
 #### **Dataset Configuration Mismatch** 🎯
+
 **Problem**: Tensor dimension mismatch (14 vs 13 features)
 **Root Cause**: Original config used `crossdock` (10 atom types) but processed data has 11 features
 **Solution**: Changed to `dataset: "crossdock_full"` which includes 'others' category
 
 #### **CPU Training Setup** 🎯
+
 **Problem**: Code hardcoded for GPU training
 **Solution**: Implemented flexible accelerator configuration in `train.py`:
+
 ```python
 if args.gpus > 0:
     accelerator = "gpu"
@@ -43,18 +50,21 @@ if args.gpus > 0:
     strategy = "ddp" if args.gpus > 1 else "auto"
 else:
     accelerator = "cpu"
-    devices = "auto" 
+    devices = "auto"
     strategy = "auto"
 ```
 
 #### **Data Key Mismatch** 🎯
+
 **Problem**: Code expected 'receptors' key but data only had 'names'
 **Solution**: Added fallback logic in lightning_modules.py:
+
 ```python
 receptor_names = batch.get("receptors", batch.get("names", []))
 ```
 
 ### 🚀 **3. Successful Training Run**
+
 - **Model**: ConditionalDDPM with 4.8M parameters (~19.3MB)
 - **Configuration**: CPU-only training with optimized settings
 - **Performance**: ~2.2 iterations/second on CPU
@@ -62,7 +72,9 @@ receptor_names = batch.get("receptors", batch.get("names", []))
 - **Checkpoints**: Automatic saving working perfectly
 
 ### 📋 **4. Configuration Optimization**
+
 Created `crossdock_fullatom_cond_playground.yml` with:
+
 - CPU-optimized settings (`device: "cpu"`, `gpus: 0`)
 - Reduced batch size for memory efficiency (`batch_size: 1`)
 - Shortened epochs for quick testing (`n_epochs: 10`)
@@ -70,6 +82,7 @@ Created `crossdock_fullatom_cond_playground.yml` with:
 - Frequent evaluation for development feedback
 
 ### 📊 **5. Model Validation**
+
 - **Checkpoint Generation**: Multiple checkpoints created successfully
   - `logs/SE3-cond-full-playground/checkpoints/last.ckpt`
   - `logs/SE3-cond-full-playground/checkpoints/best-model-epoch=XX.ckpt`
@@ -81,16 +94,19 @@ Created `crossdock_fullatom_cond_playground.yml` with:
 ## 🧠 **Technical Insights Gained**
 
 ### **Dataset Understanding**
+
 - CrossDock processed data structure: 11 atom features (not 10)
 - Data keys: `names`, `lig_coords`, `lig_one_hot`, `pocket_coords`, etc.
 - Feature dimensions: ligand `[n_atoms, 11]`, pocket `[n_residues, 11]`
 
 ### **Model Architecture**
+
 - ConditionalDDPM: Equivariant graph neural network with diffusion
 - EGNN layers: 6 layers, 256 hidden features, attention mechanism
 - Diffusion: 500 steps, polynomial_2 noise schedule
 
 ### **Training Dynamics**
+
 - CPU training feasible but ~10x slower than GPU
 - Memory requirements: ~1-2GB RAM for CPU training
 - Gradient clipping essential for stable training
@@ -101,7 +117,9 @@ Created `crossdock_fullatom_cond_playground.yml` with:
 ## 📚 **Documentation & Planning**
 
 ### **Created Comprehensive Resources**
+
 1. **`my_plan.md`**: Updated with detailed training insights
+
    - Environment setup procedures
    - Common debugging commands
    - Performance optimization tips
@@ -114,6 +132,7 @@ Created `crossdock_fullatom_cond_playground.yml` with:
    - **Implementation Details**: Code templates, configurations, evaluation framework
 
 ### **Project Structure Established**
+
 ```
 DiffSBDD/
 ├── configs/crossdock_fullatom_cond_playground.yml  ✅ Working config
@@ -128,16 +147,19 @@ DiffSBDD/
 ## 🎯 **Next Steps Identified**
 
 ### **Immediate (This Week)**
+
 1. **Baseline Evaluation**: Run full evaluation of trained model
 2. **ESM-C Setup**: Install and test ESM-C protein embeddings
 3. **Dataset Preparation**: Extract ESM-C embeddings for CrossDock proteins
 
 ### **Short-term (Next 2 Weeks)**
+
 1. **Combined Signal Model**: Implement ESM+DiffSBDD architecture
 2. **Training Pipeline**: Setup for enhanced models
 3. **Evaluation Framework**: Comprehensive comparison metrics
 
 ### **Medium-term (Next Month)**
+
 1. **Pure Embedding Model**: ESM-only conditioning approach
 2. **Comprehensive Evaluation**: Statistical comparison of all models
 3. **Results Analysis**: Key findings for thesis
@@ -147,22 +169,26 @@ DiffSBDD/
 ## 💡 **Key Learnings**
 
 ### **Environment Management**
+
 - `uv` is significantly faster and more reliable than conda/pip
 - Dependency management becomes much simpler
 - Version conflicts easier to resolve
 
 ### **PyTorch Lightning Migration**
+
 - Breaking changes between v1.x and v2.x require careful attention
 - Method signatures changed significantly
 - Backward compatibility limited
 
 ### **Development Strategy**
+
 - Start with CPU training for development and debugging
 - Use playground configurations for rapid iteration
 - Establish working baseline before attempting modifications
 - Document everything as you learn
 
 ### **Research Project Approach**
+
 - Systematic debugging leads to deeper understanding
 - Each problem solved provides insights for thesis
 - Working baseline is essential foundation for novel contributions
@@ -173,18 +199,21 @@ DiffSBDD/
 ## 🔮 **Thesis Implications**
 
 ### **Feasibility Confirmed** ✅
+
 - Training pipeline fully functional
 - ESM-C integration architecturally feasible
 - Computational resources sufficient for thesis scope
 - Timeline realistic for 20-week completion
 
 ### **Technical Foundation Established** ✅
+
 - Deep understanding of DiffSBDD internals
 - Experience with molecular diffusion models
 - Training and evaluation procedures mastered
 - Debugging and optimization skills developed
 
 ### **Research Questions Clarified** ✅
+
 - How do ESM-C embeddings enhance conditional ligand generation?
 - Can protein language models replace traditional pocket representations?
 - What is the optimal fusion strategy for combining embeddings?
@@ -219,4 +248,4 @@ DiffSBDD/
 
 ---
 
-*Next diary entry: ESM-C installation and first embedding extraction tests*
+_Next diary entry: ESM-C installation and first embedding extraction tests_

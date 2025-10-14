@@ -555,7 +555,13 @@ class LigandPocketDDPM(pl.LightningModule):
         return out
 
     def get_full_path(self, receptor_name):
-        pdb, suffix = receptor_name.split(".")
+        # Split on the last dot to handle names with multiple dots
+        parts = receptor_name.rsplit(".", 1)
+        if len(parts) == 2:
+            pdb, suffix = parts
+        else:
+            # If no dot found, use the whole name as pdb and empty suffix
+            pdb, suffix = receptor_name, ""
         receptor_name = f"{pdb.upper()}-{suffix}.pdb"
         return Path(self.datadir, "val", receptor_name)
 

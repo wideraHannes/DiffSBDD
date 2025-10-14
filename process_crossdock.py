@@ -340,7 +340,7 @@ if __name__ == "__main__":
 
     # Create validation set from training samples (smaller for debugging)
     data_split["val"] = random.sample(
-        data_split["train"], min(20, len(data_split["train"]))
+        data_split["train"], min(50, len(data_split["train"]))
     )
 
     print(

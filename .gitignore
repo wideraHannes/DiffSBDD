@@ -214,7 +214,6 @@ results/
 logs/
 wandb/
 outputs/
-experiments/
 
 # Model checkpoints and weights
 checkpoints/*.ckpt

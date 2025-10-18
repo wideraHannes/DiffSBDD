@@ -35,7 +35,7 @@ class EGNNDynamics(nn.Module):
             act_fn,
             nn.Linear(2 * atom_nf, atom_nf)
         )
-
+        # das würde ich durch das embedding aus ESM-C ersetzen residue nf = 960
         self.residue_encoder = nn.Sequential(
             nn.Linear(residue_nf, 2 * residue_nf),
             act_fn,
@@ -93,14 +93,18 @@ class EGNNDynamics(nn.Module):
         h_residues = xh_residues[:, self.n_dims:].clone()
 
         # embed atom features and residue features in a shared space
+        
+        # potentiell haben wir hier ein ESM-C embedding 960 Dim gross 
+        # 2 möglichkeiten:
+        # wir scheissen auf deren h_residues und tauschen aus durch unser ding 
         h_atoms = self.atom_encoder(h_atoms)
         h_residues = self.residue_encoder(h_residues)
-
+        # esmc_embedding = self.esm_encoder(h_residues)
+        
         # combine the two node types
         x = torch.cat((x_atoms, x_residues), dim=0)
         # @PLAN h_residues is the pocket we can first step
-        # 1. ignore the h_residues and only concatinate at point $1
-        # 2. leave h_residues in but additionally add at $1 ,h_pocket from ESM-C
+        # Wir blähen das h unten einfach auf mit einen grossen Vector von h_residues
         h = torch.cat((h_atoms, h_residues), dim=0)
         mask = torch.cat([mask_atoms, mask_residues])
 
@@ -113,7 +117,18 @@ class EGNNDynamics(nn.Module):
                 h_time = t[mask]
             # $1 just concatinate h with the pocket encoding
             h = torch.cat([h, h_time], dim=1)
-
+            
+        # theroetisch sollte jetzt die dimension von h
+        # anstatt h_residues einfach esmc rein packen 
+        # # AA_seq_Length x (h_atoms + h_residues (hier viel platz für ideen) + time)
+        
+        # für eine Aminosäure in einem pocket haben wir
+        # x: 3 dimensional 
+        # h: 16 dimnesional (welches atom)
+        # idee-h*: 960 dimensional (protein embedding)
+        
+        
+        
         # get edges of a complete graph
         edges = self.get_edges(mask_atoms, mask_residues, x_atoms, x_residues)
         assert torch.all(mask[edges[0]] == mask[edges[1]])

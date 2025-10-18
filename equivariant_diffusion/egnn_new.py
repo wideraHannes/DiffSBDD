@@ -64,6 +64,7 @@ class GCL(nn.Module):
         if node_mask is not None:
             h = h * node_mask
         return h, mij
+    
 
 
 class EquivariantUpdate(nn.Module):

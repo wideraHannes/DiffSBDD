@@ -718,6 +718,21 @@ Two options:
 
 ## 10. Common Workflows & Entry Points
 
+### Package Management
+
+**This project uses `uv` for Python package management.**
+
+```bash
+# Install dependencies with uv
+uv pip install -r requirements.txt
+
+# Or install specific packages
+uv pip install torch pytorch-lightning wandb rdkit
+
+# Run Python scripts with uv
+uv run python train.py --config configs/crossdock_fullatom_cond.yml
+```
+
 ### Workflow 1: Training from Scratch
 
 ```bash

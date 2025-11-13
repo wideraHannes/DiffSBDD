@@ -1,0 +1,284 @@
+================================================================================
+ESM-C INTEGRATION: ARCHITECTURE COMPARISON
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          BASELINE ARCHITECTURE                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Input:
+  - Pocket atoms: (n_atoms, 3 + 11) = coordinates + one-hot
+  - Ligand atoms: (m_atoms, 3 + 11)
+
+Pocket Encoder:
+  ┌─────────────┐
+  │ One-hot (11)│
+  └──────┬──────┘
+         │
+    ┌────▼────┐
+    │ Linear  │  11 → 22
+    │  + SiLU │
+    └────┬────┘
+         │
+    ┌────▼────┐
+    │ Linear  │  22 → 128
+    └────┬────┘
+         │
+    Encoded (128)
+
+Ligand Encoder: (similar)
+
+EGNN Processing:
+  ┌──────────────┐
+  │ Concat atoms │  (n+m, 128 + 3)
+  └──────┬───────┘
+         │
+    ┌────▼────┐
+    │  EGNN   │  6 layers, attention
+    │ (256 h) │
+    └────┬────┘
+         │
+    Processed (n+m, 128)
+
+Pocket Decoder:
+  ┌──────────────┐
+  │ Encoded (128)│
+  └──────┬───────┘
+         │
+    ┌────▼────┐
+    │ Linear  │  128 → 22
+    │  + SiLU │
+    └────┬────┘
+         │
+    ┌────▼────┐
+    │ Linear  │  22 → 11
+    └────┬────┘
+         │
+    One-hot (11)
+
+Loss: MSE on one-hot reconstruction
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                      ESM-C AUGMENTED ARCHITECTURE                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Input:
+  - Pocket atoms: (n_atoms, 3 + 11 + 960) = coords + one-hot + ESM-C
+  - Ligand atoms: (m_atoms, 3 + 11)       [UNCHANGED]
+
+Pocket Encoder (AUGMENTED):
+  ┌─────────────┬─────────────┐
+  │ One-hot (11)│  ESM-C (960)│
+  └──────┬──────┴──────┬──────┘
+         │             │
+         └──────┬──────┘
+                │ Concat
+         ┌──────▼──────┐
+         │ Augmented   │  11 + 960 = 971
+         └──────┬──────┘
+                │
+           ┌────▼────┐
+           │ Linear  │  971 → 1942
+           │  + SiLU │
+           └────┬────┘
+                │
+           ┌────▼────┐
+           │ Linear  │  1942 → 128
+           └────┬────┘
+                │
+           Encoded (128)
+
+Ligand Encoder: [UNCHANGED]
+
+EGNN Processing: [UNCHANGED]
+  ┌──────────────┐
+  │ Concat atoms │  (n+m, 128 + 3)
+  └──────┬───────┘
+         │
+    ┌────▼────┐
+    │  EGNN   │  6 layers, attention
+    │ (256 h) │
+    └────┬────┘
+         │
+    Processed (n+m, 128)
+
+Pocket Decoder: [UNCHANGED - outputs one-hot only!]
+  ┌──────────────┐
+  │ Encoded (128)│
+  └──────┬───────┘
+         │
+    ┌────▼────┐
+    │ Linear  │  128 → 22
+    │  + SiLU │
+    └────┬────┘
+         │
+    ┌────▼────┐
+    │ Linear  │  22 → 11
+    └────┬────┘
+         │
+    One-hot (11)  ← ESM-C is NOT decoded!
+
+Loss: MSE on one-hot reconstruction [UNCHANGED]
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              KEY DIFFERENCES                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Component         │ Baseline      │ ESM-C Augmented │ Change
+──────────────────┼───────────────┼─────────────────┼────────────────────────
+Pocket input      │ 11-dim        │ 971-dim         │ +960 (ESM-C)
+Encoder input dim │ 11            │ 971             │ Concatenated
+Encoder layer 1   │ 11 → 22       │ 971 → 1942      │ Wider
+Encoder layer 2   │ 22 → 128      │ 1942 → 128      │ Same output
+EGNN input        │ 128           │ 128             │ UNCHANGED
+EGNN processing   │ (256 hidden)  │ (256 hidden)    │ UNCHANGED
+Decoder layer 1   │ 128 → 22      │ 128 → 22        │ UNCHANGED
+Decoder layer 2   │ 22 → 11       │ 22 → 11         │ UNCHANGED
+Decoder output    │ 11-dim        │ 11-dim          │ UNCHANGED
+Loss function     │ MSE on 11-dim │ MSE on 11-dim   │ UNCHANGED
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                            DATA FLOW COMPARISON                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+BASELINE:
+  PDB → process_crossdock.py → NPZ
+       ↓
+       pocket_coords (n, 3)
+       pocket_one_hot (n, 11)
+       pocket_mask (n,)
+       ↓
+     Dataset → Dataloader → Model
+       ↓
+     Training
+
+ESM-C AUGMENTED:
+  PDB → process_crossdock.py (MODIFIED) → NPZ
+       ↓
+       pocket_coords (n, 3)
+       pocket_one_hot (n, 11)
+       pocket_mask (n,)
+       pocket_residue_ids (n,)        ← NEW!
+       pocket_ids (list of res names)
+       ↓
+     precompute_esmc.py
+       ↓
+       ESM-C embeddings (n_res, 960)
+       Broadcast to atoms → (n, 960)
+       ↓
+     Augmented NPZ
+       pocket_esmc (n, 960)            ← NEW!
+       ↓
+     Dataset → Dataloader → Model
+       ↓
+     Training
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          PARAMETER COUNT IMPACT                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Baseline Pocket Encoder:
+  Layer 1: 11 × 22 + 22 bias = 264 params
+  Layer 2: 22 × 128 + 128 bias = 2,944 params
+  Total: 3,208 parameters
+
+ESM-C Pocket Encoder:
+  Layer 1: 971 × 1,942 + 1,942 bias = 1,888,424 params
+  Layer 2: 1,942 × 128 + 128 bias = 248,576 params
+  Total: 2,137,000 parameters
+
+Increase: +2,133,792 params (665x more!)
+
+NOTE: Still tiny compared to EGNN (millions of params)
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                      BACKWARD COMPATIBILITY                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Setting esmc_dim=0 reverts to baseline:
+
+class EGNNDynamics(nn.Module):
+    def __init__(self, ..., esmc_dim=0):
+        encoder_input = residue_nf + esmc_dim
+        # If esmc_dim=0: encoder_input = 11 + 0 = 11 (baseline!)
+
+    def forward(self, ..., esmc_embeddings=None):
+        if self.use_esmc and esmc_embeddings is not None:
+            h_residues = torch.cat([h_residues, esmc_embeddings], dim=-1)
+        # If esmc_embeddings=None: h_residues stays 11-dim (baseline!)
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              ADVANTAGES                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+1. ✅ Minimal code changes
+   - Only encoder input dimension modified
+   - Decoder, EGNN, loss unchanged
+   - ~50 lines of code changes total
+
+2. ✅ Preserves atom type information
+   - One-hot stays in the loop
+   - Decoder can reconstruct atom types
+   - No loss function modification needed
+
+3. ✅ Adds rich protein context
+   - ESM-C embeddings (960-dim) inform EGNN
+   - 48x more information per residue (960/20 = 48)
+   - Captures evolutionary/structural patterns
+
+4. ✅ Backward compatible
+   - Set esmc_dim=0 → revert to baseline
+   - Can compare models directly
+   - Gradual rollout possible
+
+5. ✅ Efficient at inference
+   - Pre-compute embeddings offline
+   - Training speed ~same as baseline
+   - Storage overhead acceptable (<1% quota)
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           POTENTIAL CONCERNS                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Issue                    │ Mitigation
+─────────────────────────┼──────────────────────────────────────────────────
+Overfitting (more params)│ Early stopping, monitor val loss closely
+Memory usage (larger)    │ Reduce batch size to 8 if needed
+Slow convergence         │ Learning rate warmup, tune normalize_factors
+Data re-processing time  │ Parallelize on HPC, estimated 8-16 hours
+ESM-C computation time   │ Batch inference, GPU acceleration, ~4-8 hours
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              CONCLUSION                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+The ESM-C augmentation strategy:
+✅ Is technically feasible
+✅ Requires minimal code changes
+✅ Preserves existing architecture
+✅ Adds 960-dim rich protein context
+✅ Is backward compatible
+✅ Has acceptable storage/compute overhead
+
+Main blocker:
+⚠️  Must re-process dataset to add pocket_residue_ids
+
+Recommendation:
+→ Proceed with data re-processing (Week 1)
+→ Then implement augmentation (Week 2)
+→ Training (Week 3-5)
+
+Expected outcome:
+→ Improved binding affinity prediction
+→ Better molecular quality metrics
+→ Novel high-affinity ligands
+
+================================================================================

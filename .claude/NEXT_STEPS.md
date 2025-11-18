@@ -37,26 +37,38 @@
 
 #### Step 0.1: Verify Baseline Checkpoint
 
+**Purpose**: Ensure the pre-trained baseline model is available and loads correctly
+
+**Check checkpoint exists**:
 ```bash
-# Check if checkpoint exists
+# Verify checkpoint file
 ls -lh checkpoints/crossdocked_fullatom_cond.ckpt
 
-# If not found, download from Zenodo
-# (See paper supplementary materials)
-wget https://zenodo.org/record/8183747/files/crossdocked_fullatom_cond.ckpt \
-    -O checkpoints/crossdocked_fullatom_cond.ckpt
+# Expected: ~17MB file
+# If missing, download from Zenodo:
+# wget https://zenodo.org/record/8183747/files/crossdocked_fullatom_cond.ckpt \
+#     -O checkpoints/crossdocked_fullatom_cond.ckpt
 ```
 
 **Test checkpoint loads**:
 ```python
+import torch
 from lightning_modules import LigandPocketDDPM
 
 # Load checkpoint
 checkpoint_path = "checkpoints/crossdocked_fullatom_cond.ckpt"
-model = LigandPocketDDPM.load_from_checkpoint(checkpoint_path)
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+model = LigandPocketDDPM.load_from_checkpoint(
+    checkpoint_path, map_location=device
+)
+model = model.to(device)
+model.eval()
+
 print(f"✓ Loaded model: {model.__class__.__name__}")
 print(f"  Mode: {model.hparams.mode}")
 print(f"  Dataset: {model.hparams.dataset}")
+print(f"  Pocket representation: {model.hparams.pocket_representation}")
 ```
 
 **Expected Output**:
@@ -64,672 +76,126 @@ print(f"  Dataset: {model.hparams.dataset}")
 ✓ Loaded model: LigandPocketDDPM
   Mode: pocket_conditioning
   Dataset: crossdock
+  Pocket representation: full-atom
 ```
 
-**Action Items**:
-- [ ] Download or locate baseline checkpoint
-- [ ] Verify checkpoint loads without errors
-- [ ] Check model configuration matches expectations
+**Success Criteria**:
+- [ ] Checkpoint file exists (should be ~17MB)
+- [ ] Model loads without errors
+- [ ] Configuration matches: conditional, full-atom, CrossDocked
 
 ---
 
-#### Step 0.2: Generate Baseline Molecules (Test Set)
+#### Step 0.2: Generate Baseline Molecules (10 Test Proteins)
 
-**Option A: Using existing test set**
+**Purpose**: Generate molecules for test proteins to verify pipeline and establish baseline metrics
+
+**Why 10 proteins?**:
+- Quick verification (2-5 minutes vs hours for full test set)
+- Sufficient to catch issues and compute preliminary metrics
+- Can expand to full test set after verification
+
+**Official Method** (using existing `test.py` script):
+
 ```bash
-# Generate 100 molecules per test pocket
-python scripts/generate_baseline_test_set.py \
-    --checkpoint checkpoints/crossdocked_fullatom_cond.ckpt \
-    --test_set data/processed_crossdock_noH_full/test.npz \
+# Generate 100 molecules per pocket using the official test.py script
+python test.py checkpoints/crossdocked_fullatom_cond.ckpt \
+    --test_dir data/processed_crossdock_noH_full_temp/test/ \
+    --outdir results/baseline_10proteins/ \
     --n_samples 100 \
-    --outdir results/baseline/molecules/ \
-    --save_format sdf
+    --batch_size 100 \
+    --sanitize \
+    --skip_existing
 ```
 
-**Option B: Manual generation script** (if script doesn't exist)
+**What this does**:
+- Reads all SDF files from test directory (currently 10 proteins)
+- For each protein:
+  - Loads PDB structure from `<name>.pdb`
+  - Reads pocket residues from `<name>.txt`
+  - Generates 100 molecules
+  - Saves raw molecules to `results/baseline_10proteins/raw/<name>_gen.sdf`
+  - Saves processed (valid) molecules to `results/baseline_10proteins/processed/<name>_gen.sdf`
+  - Tracks timing in `results/baseline_10proteins/pocket_times/<name>.txt`
 
-Create `scripts/generate_baseline_test_set.py`:
-
-```python
-"""
-Generate molecules from baseline model for all test pockets.
-"""
-
-import os
-import torch
-import numpy as np
-from pathlib import Path
-from tqdm import tqdm
-import argparse
-
-from lightning_modules import LigandPocketDDPM
-from dataset import ProcessedLigandPocketDataset
-from utils import write_sdf_file
-
-
-def generate_baseline(checkpoint_path, test_set_path, n_samples, outdir):
-    """Generate molecules from baseline for all test pockets."""
-
-    # Load model
-    print(f"Loading checkpoint: {checkpoint_path}")
-    model = LigandPocketDDPM.load_from_checkpoint(checkpoint_path)
-    model = model.eval().cuda()
-
-    # Load test set
-    print(f"Loading test set: {test_set_path}")
-    test_data = np.load(test_set_path, allow_pickle=True)
-    n_test_samples = len(test_data['names'])
-
-    print(f"Found {n_test_samples} test pockets")
-    print(f"Generating {n_samples} molecules per pocket")
-
-    # Create output directory
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    # Generate for each test pocket
-    all_results = []
-
-    for i in tqdm(range(n_test_samples), desc="Generating"):
-        # Extract pocket for this sample
-        pocket_mask = (test_data['pocket_mask'] == i)
-        pocket_coords = torch.from_numpy(test_data['pocket_coords'][pocket_mask]).float()
-        pocket_one_hot = torch.from_numpy(test_data['pocket_one_hot'][pocket_mask]).float()
-
-        # Prepare pocket dict
-        pocket = {
-            'x': pocket_coords.cuda(),
-            'one_hot': pocket_one_hot.cuda(),
-            'size': torch.tensor([len(pocket_coords)]).cuda(),
-            'mask': torch.zeros(len(pocket_coords), dtype=torch.long).cuda(),
-        }
-
-        # Repeat for n_samples
-        pocket_repeated = {
-            'x': pocket['x'].repeat(n_samples, 1),
-            'one_hot': pocket['one_hot'].repeat(n_samples, 1),
-            'size': torch.tensor([len(pocket_coords)] * n_samples).cuda(),
-            'mask': torch.arange(n_samples).repeat_interleave(len(pocket_coords)).cuda(),
-        }
-
-        # Sample ligand size
-        num_nodes_lig = model.ddpm.size_distribution.sample_conditional(
-            n1=None,
-            n2=pocket_repeated['size']
-        )
-
-        # Generate molecules
-        with torch.no_grad():
-            xh_lig, _, _, _ = model.ddpm.sample_given_pocket(
-                pocket_repeated, num_nodes_lig
-            )
-
-        # Build RDKit molecules
-        from analysis.molecule_builder import build_molecule
-
-        molecules = []
-        for j in range(n_samples):
-            sample_mask = (pocket_repeated['mask'] == j)
-            coords = xh_lig[sample_mask, :3].cpu().numpy()
-            atom_types = torch.argmax(xh_lig[sample_mask, 3:], dim=1).cpu().numpy()
-
-            mol = build_molecule(
-                coords, atom_types, model.dataset_info,
-                use_openbabel=True
-            )
-
-            if mol is not None:
-                molecules.append(mol)
-
-        # Save molecules
-        pocket_name = test_data['names'][i].replace('/', '_')
-        sdf_path = outdir / f"{pocket_name}_baseline.sdf"
-        write_sdf_file(sdf_path, molecules)
-
-        all_results.append({
-            'pocket_name': pocket_name,
-            'n_generated': len(molecules),
-            'sdf_path': str(sdf_path),
-        })
-
-    # Save summary
-    import json
-    with open(outdir / 'generation_summary.json', 'w') as f:
-        json.dump(all_results, f, indent=2)
-
-    print(f"\n✓ Generation complete!")
-    print(f"  Saved {len(all_results)} pockets to {outdir}")
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint', type=str, required=True)
-    parser.add_argument('--test_set', type=str, required=True)
-    parser.add_argument('--n_samples', type=int, default=100)
-    parser.add_argument('--outdir', type=str, default='results/baseline/molecules')
-
-    args = parser.parse_args()
-
-    generate_baseline(
-        checkpoint_path=args.checkpoint,
-        test_set_path=args.test_set,
-        n_samples=args.n_samples,
-        outdir=args.outdir,
-    )
+**Output Structure**:
+```
+results/baseline_10proteins/
+├── raw/                      # All generated molecules (including invalid)
+│   ├── <pocket_name>_gen.sdf
+│   └── ...
+├── processed/                # Valid molecules only
+│   ├── <pocket_name>_gen.sdf
+│   └── ...
+├── pocket_times/             # Generation time per pocket
+│   └── *.txt
+└── pocket_times.txt          # Summary of all times
 ```
 
-**Run generation**:
-```bash
-python scripts/generate_baseline_test_set.py \
-    --checkpoint checkpoints/crossdocked_fullatom_cond.ckpt \
-    --test_set data/processed_crossdock_noH_full/test.npz \
-    --n_samples 100 \
-    --outdir results/baseline/molecules/
-```
-
-**Expected time**: 2-6 hours (depends on test set size and GPU)
-
-**Action Items**:
-- [ ] Create generation script if needed
-- [ ] Run generation on full test set
-- [ ] Verify molecules were generated
-- [ ] Check output directory has SDF files
-
----
-
-#### Step 0.3: Compute Baseline Metrics
-
-**Create `scripts/evaluate_baseline.py`**:
-
-```python
-"""
-Evaluate baseline model on test set.
-Computes: validity, uniqueness, novelty, QED, SA score, etc.
-"""
-
-import os
-import numpy as np
-import torch
-from pathlib import Path
-from tqdm import tqdm
-import argparse
-import json
-from rdkit import Chem
-
-from analysis.metrics import BasicMolecularMetrics, MoleculeProperties
-from utils import read_sdf_file
-
-
-def compute_metrics(molecules_dir, test_set_path, output_path):
-    """Compute all metrics for baseline molecules."""
-
-    print(f"Loading molecules from: {molecules_dir}")
-    molecules_dir = Path(molecules_dir)
-
-    # Load all SDF files
-    all_molecules = []
-    all_pocket_names = []
-
-    sdf_files = sorted(molecules_dir.glob("*.sdf"))
-    print(f"Found {len(sdf_files)} SDF files")
-
-    for sdf_path in tqdm(sdf_files, desc="Loading molecules"):
-        mols = read_sdf_file(sdf_path)
-        all_molecules.extend(mols)
-        pocket_name = sdf_path.stem.replace('_baseline', '')
-        all_pocket_names.extend([pocket_name] * len(mols))
-
-    print(f"\nTotal molecules loaded: {len(all_molecules)}")
-
-    # Initialize metrics
-    basic_metrics = BasicMolecularMetrics()
-    mol_properties = MoleculeProperties()
-
-    # Compute metrics
-    print("\nComputing metrics...")
-
-    results = {
-        'n_molecules': len(all_molecules),
-        'n_pockets': len(sdf_files),
-    }
-
-    # Validity
-    valid_mols = [m for m in all_molecules if m is not None]
-    results['validity'] = len(valid_mols) / len(all_molecules)
-    print(f"  Validity: {results['validity']:.3f}")
-
-    # Uniqueness
-    smiles_list = []
-    for mol in valid_mols:
-        try:
-            smiles = Chem.MolToSmiles(mol)
-            smiles_list.append(smiles)
-        except:
-            continue
-
-    unique_smiles = set(smiles_list)
-    results['uniqueness'] = len(unique_smiles) / len(smiles_list) if smiles_list else 0
-    print(f"  Uniqueness: {results['uniqueness']:.3f}")
-
-    # Molecular properties (QED, SA, LogP, etc.)
-    qed_scores = []
-    sa_scores = []
-    logp_scores = []
-
-    for mol in tqdm(valid_mols, desc="Computing properties"):
-        try:
-            # QED (drug-likeness)
-            from rdkit.Chem import QED
-            qed = QED.qed(mol)
-            qed_scores.append(qed)
-
-            # SA Score (synthetic accessibility)
-            from rdkit.Contrib.SA_Score import sascorer
-            sa = sascorer.calculateScore(mol)
-            sa_scores.append(sa)
-
-            # LogP
-            from rdkit.Chem import Descriptors
-            logp = Descriptors.MolLogP(mol)
-            logp_scores.append(logp)
-        except:
-            continue
-
-    results['qed_mean'] = np.mean(qed_scores)
-    results['qed_std'] = np.std(qed_scores)
-    results['sa_mean'] = np.mean(sa_scores)
-    results['sa_std'] = np.std(sa_scores)
-    results['logp_mean'] = np.mean(logp_scores)
-    results['logp_std'] = np.std(logp_scores)
-
-    print(f"\n  QED: {results['qed_mean']:.3f} ± {results['qed_std']:.3f}")
-    print(f"  SA Score: {results['sa_mean']:.3f} ± {results['sa_std']:.3f}")
-    print(f"  LogP: {results['logp_mean']:.3f} ± {results['logp_std']:.3f}")
-
-    # Molecular weight
-    mw_scores = [Chem.Descriptors.MolWt(m) for m in valid_mols]
-    results['mol_weight_mean'] = np.mean(mw_scores)
-    results['mol_weight_std'] = np.std(mw_scores)
-    print(f"  Mol Weight: {results['mol_weight_mean']:.1f} ± {results['mol_weight_std']:.1f}")
-
-    # Number of atoms
-    n_atoms = [m.GetNumAtoms() for m in valid_mols]
-    results['n_atoms_mean'] = np.mean(n_atoms)
-    results['n_atoms_std'] = np.std(n_atoms)
-    print(f"  Num Atoms: {results['n_atoms_mean']:.1f} ± {results['n_atoms_std']:.1f}")
-
-    # Save detailed results
-    results['qed_scores'] = qed_scores
-    results['sa_scores'] = sa_scores
-    results['logp_scores'] = logp_scores
-    results['mw_scores'] = mw_scores
-    results['n_atoms'] = n_atoms
-
-    # Save to file
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, 'w') as f:
-        json.dump(results, f, indent=2)
-
-    print(f"\n✓ Saved results to: {output_path}")
-
-    return results
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--molecules_dir', type=str,
-                       default='results/baseline/molecules')
-    parser.add_argument('--test_set', type=str,
-                       default='data/processed_crossdock_noH_full/test.npz')
-    parser.add_argument('--output', type=str,
-                       default='results/baseline/baseline_metrics.json')
-
-    args = parser.parse_args()
-
-    compute_metrics(
-        molecules_dir=args.molecules_dir,
-        test_set_path=args.test_set,
-        output_path=args.output,
-    )
-```
-
-**Run evaluation**:
-```bash
-python scripts/evaluate_baseline.py \
-    --molecules_dir results/baseline/molecules/ \
-    --test_set data/processed_crossdock_noH_full/test.npz \
-    --output results/baseline/baseline_metrics.json
-```
+**Expected Runtime**: 2-5 minutes (depends on GPU)
 
 **Expected Output**:
 ```
-Total molecules loaded: 10000
-Computing metrics...
-  Validity: 0.723
-  Uniqueness: 0.947
+Processing pocket 1/10: 14gs-A-rec-...
+  Generated 100 molecules in 12.34 seconds
+  Valid: 72/100 (72.0%)
 
-  QED: 0.452 ± 0.142
-  SA Score: 3.18 ± 0.87
-  LogP: 2.34 ± 1.12
-  Mol Weight: 287.3 ± 78.4
-  Num Atoms: 21.4 ± 5.8
+...
 
-✓ Saved results to: results/baseline/baseline_metrics.json
+Time per pocket: 14.532 ± 3.21
 ```
 
-**Action Items**:
-- [ ] Create evaluation script
-- [ ] Run metrics computation
-- [ ] Save results JSON
-- [ ] Document baseline numbers
-
----
-
-#### Step 0.4: (Optional) Docking Evaluation
-
-**If Vina/smina available**:
-
-```bash
-# Install smina (molecular docking)
-conda install -c conda-forge smina
-
-# Or download from: https://sourceforge.net/projects/smina/
-```
-
-**Create `scripts/evaluate_docking_baseline.py`**:
-
+**Quick Validation**:
 ```python
-"""
-Evaluate baseline molecules with molecular docking (Vina/smina).
-"""
-
-import os
-import subprocess
+# Verify generation results
 from pathlib import Path
-from tqdm import tqdm
-import json
-import argparse
+from rdkit import Chem
 
+processed_dir = Path("results/baseline_10proteins/processed")
+sdf_files = list(processed_dir.glob("*.sdf"))
 
-def dock_molecule(receptor_pdb, ligand_sdf, output_dir):
-    """Dock single molecule with smina."""
+print(f"Processed {len(sdf_files)} pockets")
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+total_mols = 0
+for sdf in sdf_files:
+    suppl = Chem.SDMolSupplier(str(sdf))
+    n_mols = len([m for m in suppl if m is not None])
+    total_mols += n_mols
+    print(f"  {sdf.stem}: {n_mols} valid molecules")
 
-    # Run smina scoring
-    cmd = [
-        'smina',
-        '-r', receptor_pdb,
-        '-l', ligand_sdf,
-        '--score_only',  # Just score, don't optimize
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    # Parse score from output
-    for line in result.stdout.split('\n'):
-        if 'Affinity' in line:
-            score = float(line.split()[1])
-            return score
-
-    return None
-
-
-def evaluate_docking(molecules_dir, receptors_dir, output_path):
-    """Evaluate docking scores for all baseline molecules."""
-
-    molecules_dir = Path(molecules_dir)
-    receptors_dir = Path(receptors_dir)
-
-    sdf_files = sorted(molecules_dir.glob("*.sdf"))
-
-    all_scores = []
-
-    for sdf_path in tqdm(sdf_files, desc="Docking"):
-        pocket_name = sdf_path.stem.replace('_baseline', '')
-
-        # Find corresponding receptor PDB
-        # (This depends on your data organization)
-        receptor_pdb = receptors_dir / f"{pocket_name}_receptor.pdb"
-
-        if not receptor_pdb.exists():
-            print(f"Warning: Receptor not found for {pocket_name}")
-            continue
-
-        # Dock
-        score = dock_molecule(receptor_pdb, sdf_path,
-                             Path('results/baseline/docking'))
-
-        if score is not None:
-            all_scores.append({
-                'pocket_name': pocket_name,
-                'vina_score': score,
-            })
-
-    # Save results
-    with open(output_path, 'w') as f:
-        json.dump(all_scores, f, indent=2)
-
-    # Print summary
-    import numpy as np
-    scores = [s['vina_score'] for s in all_scores]
-    print(f"\nDocking Summary:")
-    print(f"  N molecules: {len(scores)}")
-    print(f"  Mean Vina: {np.mean(scores):.2f} ± {np.std(scores):.2f}")
-    print(f"  Median: {np.median(scores):.2f}")
-    print(f"  Best: {np.min(scores):.2f}")
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--molecules_dir', type=str,
-                       default='results/baseline/molecules')
-    parser.add_argument('--receptors_dir', type=str,
-                       default='data/receptors')  # Adjust path
-    parser.add_argument('--output', type=str,
-                       default='results/baseline/docking_scores.json')
-
-    args = parser.parse_args()
-
-    evaluate_docking(
-        molecules_dir=args.molecules_dir,
-        receptors_dir=args.receptors_dir,
-        output_path=args.output,
-    )
+print(f"\nTotal valid molecules: {total_mols}/{len(sdf_files)*100}")
+print(f"Average validity: {total_mols/(len(sdf_files)*100):.1%}")
 ```
-
-**Note**: Docking requires:
-- Receptor PDB files (protein structures)
-- May be time-consuming
-- Optional but valuable for comparison
-
-**Action Items**:
-- [ ] Install smina (if doing docking)
-- [ ] Run docking evaluation (optional)
-- [ ] Save docking scores
-
----
-
-#### Step 0.5: Create Baseline Report
-
-**Create `scripts/create_baseline_report.py`**:
-
-```python
-"""
-Create a comprehensive baseline report with all metrics.
-"""
-
-import json
-import numpy as np
-from pathlib import Path
-
-
-def create_report(metrics_path, docking_path=None, output_path='results/baseline/BASELINE_REPORT.md'):
-    """Generate markdown report of baseline performance."""
-
-    # Load metrics
-    with open(metrics_path, 'r') as f:
-        metrics = json.load(f)
-
-    # Load docking if available
-    docking_scores = None
-    if docking_path and Path(docking_path).exists():
-        with open(docking_path, 'r') as f:
-            docking_data = json.load(f)
-            docking_scores = [d['vina_score'] for d in docking_data]
-
-    # Create report
-    report = f"""# Baseline Model Performance Report
-
-**Date**: {import datetime; datetime.datetime.now().strftime('%Y-%m-%d')}
-**Model**: DiffSBDD Baseline (CrossDocked full-atom conditional)
-**Checkpoint**: `checkpoints/crossdocked_fullatom_cond.ckpt`
-
----
-
-## Summary Statistics
-
-| Metric | Value |
-|--------|-------|
-| Total Molecules | {metrics['n_molecules']:,} |
-| Test Pockets | {metrics['n_pockets']:,} |
-| **Validity** | **{metrics['validity']:.1%}** |
-| **Uniqueness** | **{metrics['uniqueness']:.1%}** |
-
----
-
-## Molecular Properties
-
-### Drug-likeness (QED)
-- Mean: **{metrics['qed_mean']:.3f}** ± {metrics['qed_std']:.3f}
-- Range: {min(metrics['qed_scores']):.3f} - {max(metrics['qed_scores']):.3f}
-
-### Synthetic Accessibility (SA Score)
-- Mean: **{metrics['sa_mean']:.3f}** ± {metrics['sa_std']:.3f}
-- Range: {min(metrics['sa_scores']):.3f} - {max(metrics['sa_scores']):.3f}
-- *Lower is better (1-10 scale)*
-
-### Lipophilicity (LogP)
-- Mean: **{metrics['logp_mean']:.3f}** ± {metrics['logp_std']:.3f}
-- Range: {min(metrics['logp_scores']):.3f} - {max(metrics['logp_scores']):.3f}
-
-### Molecular Weight
-- Mean: **{metrics['mol_weight_mean']:.1f}** ± {metrics['mol_weight_std']:.1f} Da
-- Range: {min(metrics['mw_scores']):.1f} - {max(metrics['mw_scores']):.1f} Da
-
-### Number of Atoms
-- Mean: **{metrics['n_atoms_mean']:.1f}** ± {metrics['n_atoms_std']:.1f}
-- Range: {min(metrics['n_atoms']):.0f} - {max(metrics['n_atoms']):.0f}
-
----
-"""
-
-    # Add docking section if available
-    if docking_scores:
-        report += f"""
-## Docking Scores (Vina)
-
-| Metric | Value (kcal/mol) |
-|--------|------------------|
-| Mean | **{np.mean(docking_scores):.2f}** ± {np.std(docking_scores):.2f} |
-| Median | {np.median(docking_scores):.2f} |
-| Best (min) | {np.min(docking_scores):.2f} |
-| 10th percentile | {np.percentile(docking_scores, 10):.2f} |
-| 90th percentile | {np.percentile(docking_scores, 90):.2f} |
-
-*Lower (more negative) scores indicate better predicted binding affinity*
-
----
-"""
-
-    report += """
-## Distribution Plots
-
-(To be generated with matplotlib)
-
----
-
-## Comparison Target for ESM-C Model
 
 **Success Criteria**:
-- Validity improvement: >5% (current: {:.1%})
-- QED improvement: >0.05 (current: {:.3f})
-- SA Score improvement: <-0.2 (current: {:.3f})
-- Vina improvement: <-0.5 kcal/mol (if docking available)
+- [ ] Script completes without errors
+- [ ] 10 pockets processed
+- [ ] Both `raw/` and `processed/` directories contain SDF files
+- [ ] Validity > 50% (typical baseline: 60-75%)
+- [ ] Timing file created
 
-**Statistical Test**: Wilcoxon signed-rank test (p < 0.05)
+**Notes**:
+- This uses the **official test.py script** (no custom code needed)
+- Can easily scale to full test set by running same command with more test data
+- `--skip_existing` allows resuming if interrupted
+- Results are comparable to paper benchmarks
 
----
+**Performance Insights (from testing)**:
+- **CPU performance**: ~60-80 seconds per molecule on MacBook (M1/M2)
+- **Expected GPU performance**: ~0.5-1 second per molecule on V100/A100
+- **Validity rate**: ~100% on baseline model (very high quality)
+- **File format**: Each SDF file contains ALL molecules for that pocket (use RDKit iterator, not indexing!)
 
-## Files
+**Common Pitfall - Reading SDF Files**:
+```python
+# ❌ WRONG - Only reads first molecule
+suppl = Chem.SDMolSupplier(str(sdf_file))
+mol = suppl[0]  # Only gets first molecule!
 
-- Molecules: `results/baseline/molecules/*.sdf`
-- Metrics: `results/baseline/baseline_metrics.json`
-- Report: `results/baseline/BASELINE_REPORT.md`
-""".format(metrics['validity'], metrics['qed_mean'], metrics['sa_mean'])
-
-    # Save report
-    with open(output_path, 'w') as f:
-        f.write(report)
-
-    print(f"✓ Baseline report saved to: {output_path}")
-
-
-if __name__ == '__main__':
-    create_report(
-        metrics_path='results/baseline/baseline_metrics.json',
-        docking_path='results/baseline/docking_scores.json',  # Optional
-        output_path='results/baseline/BASELINE_REPORT.md',
-    )
+# ✅ CORRECT - Reads all molecules
+suppl = Chem.SDMolSupplier(str(sdf_file))
+mols = [m for m in suppl if m is not None]  # Gets all molecules
 ```
-
-**Run**:
-```bash
-python scripts/create_baseline_report.py
-```
-
-**Action Items**:
-- [ ] Create report generation script
-- [ ] Generate baseline report
-- [ ] Review metrics
-- [ ] Save report for comparison
-
----
-
-#### Step 0.6: Document Baseline Numbers
-
-**Critical**: Save these baseline numbers for comparison!
-
-**Create `results/baseline/BASELINE_SUMMARY.txt`**:
-
-```
-BASELINE MODEL PERFORMANCE (DiffSBDD)
-=====================================
-
-Checkpoint: checkpoints/crossdocked_fullatom_cond.ckpt
-Test Set: CrossDocked test split
-Date: 2025-11-13
-
-KEY METRICS:
------------
-Validity:    XX.X%
-Uniqueness:  XX.X%
-QED:         X.XXX ± X.XXX
-SA Score:    X.XX ± X.XX
-Vina Score:  -X.XX ± X.XX kcal/mol (if available)
-
-THESE ARE THE TARGET TO BEAT WITH ESM-C!
-
-Statistical significance required: p < 0.05 (Wilcoxon test)
-```
-
-**Action Items**:
-- [ ] Fill in actual baseline numbers
-- [ ] Commit to git (important!)
-- [ ] Reference in thesis
 
 ---
 
@@ -737,23 +203,21 @@ Statistical significance required: p < 0.05 (Wilcoxon test)
 
 **Deliverables**:
 1. Baseline checkpoint verified ✓
-2. Test set molecules generated ✓
-3. All metrics computed ✓
-4. Baseline report created ✓
-5. Numbers documented for comparison ✓
+2. Molecules generated for 10 test proteins ✓
 
-**Time Estimate**: 4-8 hours (mostly generation time)
+**Time Estimate**: 5-10 minutes
 
 **Can run in parallel with**: Data re-processing (Phase 0B)
 
 **Files Created**:
-- `scripts/generate_baseline_test_set.py`
-- `scripts/evaluate_baseline.py`
-- `scripts/evaluate_docking_baseline.py` (optional)
-- `scripts/create_baseline_report.py`
-- `results/baseline/baseline_metrics.json`
-- `results/baseline/BASELINE_REPORT.md`
-- `results/baseline/molecules/*.sdf`
+- `results/baseline_10proteins/raw/*.sdf` - All generated molecules
+- `results/baseline_10proteins/processed/*.sdf` - Valid molecules only
+- `results/baseline_10proteins/pocket_times.txt` - Generation timing
+
+**Next Steps After Verification**:
+- Once verified on 10 proteins, can expand to full test set if more data available
+- These preliminary results are sufficient for initial comparison with ESM-C model
+- Can compute detailed metrics (QED, SA Score, docking) if needed for thesis
 
 ---
 
@@ -1850,11 +1314,7 @@ if p_value < 0.05:
 
 ### Phase 0A: Baseline Evaluation (PARALLEL - Week 1)
 - [ ] Step 0.1: Verify baseline checkpoint
-- [ ] Step 0.2: Generate baseline molecules (test set)
-- [ ] Step 0.3: Compute baseline metrics
-- [ ] Step 0.4: (Optional) Docking evaluation
-- [ ] Step 0.5: Create baseline report
-- [ ] Step 0.6: Document baseline numbers
+- [ ] Step 0.2: Generate baseline molecules (10 test proteins)
 
 ### Phase 0B: Data Re-processing (Week 1)
 - [ ] Step 1: Modify process_crossdock.py

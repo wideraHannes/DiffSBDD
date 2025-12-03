@@ -4,6 +4,32 @@
 
 ---
 
+## 📚 Documentation Guide
+
+**This document (THESIS_PLAN.md)** is the single source of truth for the thesis project.
+
+### Quick Navigation
+
+| Document | Purpose | When to Use |
+|----------|---------|-------------|
+| **THESIS_PLAN.md** (this file) | Master plan: research question, architecture, evaluation | Start here - complete overview |
+| **implementation_plan.md** | Day-by-day implementation with validation experiments | When implementing code |
+| **CONFIGURATION_GUIDE.md** | Baseline vs ESM-C mode configuration & backward compatibility | When writing code that supports both modes |
+| **06_GLOBAL_POCKET_CONDITIONING.md** | Detailed explanation of global conditioning approach | Understanding the architecture choice |
+| **IN_DEPTH_EXPLANATION.md** | Detailed codebase analysis and integration points | Understanding existing DiffSBDD code |
+
+### Core Analogy
+
+```
+Text Prompt → CLIP → Stable Diffusion → Image
+     ↓           ↓            ↓            ↓
+Pocket Seq  →  ESM-C  →   DiffSBDD   →  Ligand
+```
+
+**Key Insight**: Single global 960-dim ESM-C embedding per pocket as steering signal via FiLM conditioning.
+
+---
+
 ## 1. Research Question
 
 **Can evolutionary and structural context from protein language models (ESM-C) improve structure-based drug design by providing a global steering signal to the diffusion process?**
@@ -192,6 +218,10 @@ Where:
 ---
 
 ## 5. Implementation Plan
+
+> **📋 For detailed day-by-day implementation with validation experiments**, see `implementation_plan.md`
+>
+> This section provides a high-level overview of the implementation phases. The implementation_plan.md follows a scientific validation-first approach with specific experiments, success criteria, and debugging strategies.
 
 ### Phase 1: ESM-C Embedding Extraction (Week 1)
 
@@ -516,7 +546,119 @@ for pocket in test_set:
 
 ---
 
-## 6. Timeline (8 Weeks Total)
+### ⏳ Phase 8: Configuration & Backward Compatibility (Throughout)
+
+**Goal**: Ensure codebase supports both baseline and ESM-C modes
+
+**Importance**: Critical for:
+- Fair comparisons between baseline and ESM-C
+- Reproducing original DiffSBDD results
+- Ablation studies
+- Future extensions
+
+**See**: `.claude/CONFIGURATION_GUIDE.md` for full details
+
+#### Key Design Principles
+
+1. **Single Configuration Flag**: `esmc_conditioning: bool`
+   - Controls all ESM-C-related behavior
+   - `False` → Original baseline (no changes)
+   - `True` → ESM-C conditioning enabled
+
+2. **Zero Baseline Overhead**
+   - Baseline mode has no performance impact
+   - FiLM network only initialized if needed
+   - ESM-C embeddings only loaded if needed
+
+3. **Safe Defaults**
+   - `pocket_emb=None` in all function signatures
+   - Conditional checks before using ESM-C
+   - Clear error messages if misconfigured
+
+#### Configuration Files
+
+**Baseline**: `configs/crossdock_fullatom_cond.yml`
+```yaml
+esmc_conditioning: False  # Original DiffSBDD
+# ... rest unchanged
+```
+
+**ESM-C**: `configs/crossdock_fullatom_cond_esmc.yml`
+```yaml
+esmc_conditioning: True
+esmc_dim: 960
+esmc_train_path: "data/esmc_train.npz"
+esmc_val_path: "data/esmc_val.npz"
+esmc_test_path: "data/esmc_test.npz"
+# ... rest same as baseline
+```
+
+#### Code Pattern
+
+All modifications follow this pattern:
+
+```python
+# 1. Accept optional parameter
+def forward(self, ..., pocket_emb=None):
+
+# 2. Conditional initialization
+if esmc_conditioning:
+    self.pocket_film = nn.Sequential(...)
+else:
+    self.pocket_film = None
+
+# 3. Conditional application
+if self.esmc_conditioning and pocket_emb is not None:
+    gamma, beta = self.pocket_film(pocket_emb)
+    h_atoms = gamma * h_atoms + beta
+```
+
+#### Usage Examples
+
+**Train baseline**:
+```bash
+python train.py --config configs/crossdock_fullatom_cond.yml
+```
+
+**Train ESM-C**:
+```bash
+python train.py --config configs/crossdock_fullatom_cond_esmc.yml
+```
+
+**Generate baseline**:
+```bash
+python generate_ligands.py checkpoints/baseline.ckpt ...
+```
+
+**Generate ESM-C**:
+```bash
+python generate_ligands.py checkpoints/esmc.ckpt ...
+```
+
+#### Validation
+
+Create unit tests to ensure both modes work:
+
+```python
+# tests/test_conditioning.py
+def test_baseline_mode():
+    """Baseline mode works without ESM-C"""
+    dynamics = EGNNDynamics(esmc_conditioning=False)
+    output = dynamics(..., pocket_emb=None)  # Should work
+    assert output is not None
+
+def test_esmc_mode():
+    """ESM-C mode requires embedding"""
+    dynamics = EGNNDynamics(esmc_conditioning=True)
+    output = dynamics(..., pocket_emb=emb)  # Should work
+    assert output is not None
+```
+
+**Deliverable**: Codebase supporting both baseline and ESM-C modes seamlessly
+
+---
+
+## 7. Timeline (8 Weeks Total)
 
 | Week | Task | Deliverable | Hours |
 |------|------|-------------|-------|
@@ -531,9 +673,11 @@ for pocket in test_set:
 
 **Total**: ~240 hours (~6 weeks full-time work)
 
+**Note**: Configuration & backward compatibility (Phase 8) is integrated throughout all phases.
+
 ---
 
-## 7. Thesis Structure
+## 8. Thesis Structure
 
 ### Chapter 1: Introduction (5-8 pages)
 - **Motivation**: Drug discovery is slow and expensive
@@ -650,7 +794,7 @@ for pocket in test_set:
 
 ---
 
-## 8. Key Strengths of This Approach
+## 9. Key Strengths of This Approach
 
 ### ✅ **Novel Framing**
 - First to use protein LM as **global steering signal** for SBDD
@@ -686,7 +830,7 @@ for pocket in test_set:
 
 ---
 
-## 9. Potential Challenges & Solutions
+## 10. Potential Challenges & Solutions
 
 | Challenge | Solution |
 |-----------|----------|
@@ -699,7 +843,7 @@ for pocket in test_set:
 
 ---
 
-## 10. Success Criteria
+## 11. Success Criteria
 
 ### Minimum Viable Thesis (Pass)
 - ✅ Implement ESM-C conditioning
@@ -724,7 +868,7 @@ for pocket in test_set:
 
 ---
 
-## 11. References
+## 12. References
 
 **Core Papers**:
 1. Schneuing et al. (2024) - "Structure-based drug design with equivariant diffusion models" - *Nature Computational Science*
@@ -740,7 +884,7 @@ for pocket in test_set:
 
 ---
 
-## 12. Next Immediate Steps
+## 13. Next Immediate Steps
 
 1. ✅ **Read this plan carefully** - Understand the full approach
 2. ✅ **Set up environment** - Install ESM-C, DiffSBDD, dependencies

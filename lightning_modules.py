@@ -57,6 +57,7 @@ class LigandPocketDDPM(pl.LightningModule):
         node_histogram,
         pocket_representation="CA",
         virtual_nodes=False,
+        esmc_path=None,
     ):
         super(LigandPocketDDPM, self).__init__()
         self.save_hyperparameters()
@@ -73,6 +74,7 @@ class LigandPocketDDPM(pl.LightningModule):
 
         self.dataset_name = dataset
         self.datadir = datadir
+        self.esmc_path = esmc_path
         self.outdir = outdir
         self.batch_size = batch_size
         self.eval_batch_size = (
@@ -208,15 +210,21 @@ class LigandPocketDDPM(pl.LightningModule):
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit":
+            train_esmc = Path(self.datadir, "train_esmc.npz") if self.esmc_path else None
+            val_esmc = Path(self.datadir, "val_esmc.npz") if self.esmc_path else None
             self.train_dataset = ProcessedLigandPocketDataset(
-                Path(self.datadir, "train.npz"), transform=self.data_transform
+                Path(self.datadir, "train.npz"), transform=self.data_transform,
+                esmc_path=train_esmc
             )
             self.val_dataset = ProcessedLigandPocketDataset(
-                Path(self.datadir, "val.npz"), transform=self.data_transform
+                Path(self.datadir, "val.npz"), transform=self.data_transform,
+                esmc_path=val_esmc
             )
         elif stage == "test":
+            test_esmc = Path(self.datadir, "test_esmc.npz") if self.esmc_path else None
             self.test_dataset = ProcessedLigandPocketDataset(
-                Path(self.datadir, "test.npz"), transform=self.data_transform
+                Path(self.datadir, "test.npz"), transform=self.data_transform,
+                esmc_path=test_esmc
             )
         else:
             raise NotImplementedError
@@ -269,6 +277,10 @@ class LigandPocketDDPM(pl.LightningModule):
             "size": data["num_pocket_nodes"].to(self.device, INT_TYPE),
             "mask": data["pocket_mask"].to(self.device, INT_TYPE),
         }
+        # Add ESM-C embedding if available (optional)
+        if "pocket_emb" in data:
+            pocket["pocket_emb"] = data["pocket_emb"].to(self.device, FLOAT_TYPE)
+
         return ligand, pocket
 
     def forward(self, data):

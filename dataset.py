@@ -5,12 +5,20 @@ from torch.utils.data import Dataset
 
 
 class ProcessedLigandPocketDataset(Dataset):
-    def __init__(self, npz_path, center=True, transform=None):
+    def __init__(self, npz_path, center=True, transform=None, esmc_path=None):
 
         self.transform = transform
+        self.use_esmc = esmc_path is not None
 
         with np.load(npz_path, allow_pickle=True) as f:
             data = {key: val for key, val in f.items()}
+
+        # Load ESM-C embeddings if provided (optional)
+        if self.use_esmc:
+            with np.load(esmc_path, allow_pickle=True) as f:
+                self.esmc_embeddings = torch.from_numpy(f['embeddings']).float()
+        else:
+            self.esmc_embeddings = None
 
         # split data based on mask
         self.data = {}
@@ -45,6 +53,11 @@ class ProcessedLigandPocketDataset(Dataset):
 
     def __getitem__(self, idx):
         data = {key: val[idx] for key, val in self.data.items()}
+
+        # Add ESM-C embedding if available (optional)
+        if self.use_esmc:
+            data['pocket_emb'] = self.esmc_embeddings[idx]
+
         if self.transform is not None:
             data = self.transform(data)
         return data
@@ -59,6 +72,9 @@ class ProcessedLigandPocketDataset(Dataset):
             elif prop == 'num_lig_atoms' or prop == 'num_pocket_nodes' \
                     or prop == 'num_virtual_atoms':
                 out[prop] = torch.tensor([x[prop] for x in batch])
+            elif prop == 'pocket_emb':
+                # Stack ESM-C embeddings: [batch_size, 960]
+                out[prop] = torch.stack([x[prop] for x in batch], dim=0)
             elif 'mask' in prop:
                 # make sure indices in batch start at zero (needed for
                 # torch_scatter)

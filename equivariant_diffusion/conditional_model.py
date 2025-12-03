@@ -110,14 +110,14 @@ class ConditionalDDPM(EnVariationalDiffusion):
         return log_p_x_given_z0_without_constants_ligand, log_ph_given_z0_ligand
 
     def sample_p_xh_given_z0(self, z0_lig, xh0_pocket, lig_mask, pocket_mask,
-                             batch_size, fix_noise=False):
+                             batch_size, fix_noise=False, pocket_emb=None):
         """Samples x ~ p(x|z0)."""
         t_zeros = torch.zeros(size=(batch_size, 1), device=z0_lig.device)
         gamma_0 = self.gamma(t_zeros)
         # Computes sqrt(sigma_0^2 / alpha_0^2)
         sigma_x = self.SNR(-0.5 * gamma_0)
         net_out_lig, _ = self.dynamics(
-            z0_lig, xh0_pocket, t_zeros, lig_mask, pocket_mask)
+            z0_lig, xh0_pocket, t_zeros, lig_mask, pocket_mask, pocket_emb=pocket_emb)
 
         # Compute mu for p(zs | zt).
         mu_x_lig = self.compute_x_pred(net_out_lig, z0_lig, gamma_0, lig_mask)
@@ -249,9 +249,12 @@ class ConditionalDDPM(EnVariationalDiffusion):
             self.noised_representation(xh0_lig, xh0_pocket, ligand['mask'],
                                        pocket['mask'], gamma_t)
 
+        # Extract ESM-C embedding if available (optional)
+        pocket_emb = pocket.get('pocket_emb', None)
+
         # Neural net prediction.
         net_out_lig, _ = self.dynamics(
-            z_t_lig, xh_pocket, t, ligand['mask'], pocket['mask'])
+            z_t_lig, xh_pocket, t, ligand['mask'], pocket['mask'], pocket_emb=pocket_emb)
 
         # For LJ loss term
         # xh_lig_hat does not need to be zero-centered as it is only used for
@@ -304,7 +307,7 @@ class ConditionalDDPM(EnVariationalDiffusion):
                                            pocket['mask'], gamma_0)
 
             net_out_0_lig, _ = self.dynamics(
-                z_0_lig, xh_pocket, t_zeros, ligand['mask'], pocket['mask'])
+                z_0_lig, xh_pocket, t_zeros, ligand['mask'], pocket['mask'], pocket_emb=pocket_emb)
 
             log_p_x_given_z0_without_constants_ligand, log_ph_given_z0 = \
                 self.log_pxh_given_z0_without_constants(
@@ -430,7 +433,7 @@ class ConditionalDDPM(EnVariationalDiffusion):
         return zt_lig, xh0_pocket
 
     def sample_p_zs_given_zt(self, s, t, zt_lig, xh0_pocket, ligand_mask,
-                             pocket_mask, fix_noise=False):
+                             pocket_mask, fix_noise=False, pocket_emb=None):
         """Samples from zs ~ p(zs | zt). Only used during sampling."""
         gamma_s = self.gamma(s)
         gamma_t = self.gamma(t)
@@ -443,7 +446,7 @@ class ConditionalDDPM(EnVariationalDiffusion):
 
         # Neural net prediction.
         eps_t_lig, _ = self.dynamics(
-            zt_lig, xh0_pocket, t, ligand_mask, pocket_mask)
+            zt_lig, xh0_pocket, t, ligand_mask, pocket_mask, pocket_emb=pocket_emb)
 
         # Compute mu for p(zs | zt).
         # Note: mu_{t->s} = 1 / alpha_{t|s} z_t - sigma_{t|s}^2 / sigma_t / alpha_{t|s} epsilon

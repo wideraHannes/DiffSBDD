@@ -52,6 +52,14 @@ class EGNNDynamics(nn.Module):
             if self.edge_nf is not None else None
         self.edge_nf = 0 if self.edge_nf is None else self.edge_nf
 
+        # ESM-C FiLM conditioning network (optional)
+        # Takes global pocket embedding (960) and outputs scale/shift for joint_nf
+        self.film_network = nn.Sequential(
+            nn.Linear(960, hidden_nf),
+            act_fn,
+            nn.Linear(hidden_nf, 2 * joint_nf)  # outputs [gamma, beta]
+        )
+
         if condition_time:
             dynamics_node_nf = joint_nf + 1
         else:
@@ -84,7 +92,7 @@ class EGNNDynamics(nn.Module):
         self.n_dims = n_dims
         self.condition_time = condition_time
 
-    def forward(self, xh_atoms, xh_residues, t, mask_atoms, mask_residues):
+    def forward(self, xh_atoms, xh_residues, t, mask_atoms, mask_residues, pocket_emb=None):
 
         x_atoms = xh_atoms[:, :self.n_dims].clone()
         h_atoms = xh_atoms[:, self.n_dims:].clone()
@@ -107,6 +115,20 @@ class EGNNDynamics(nn.Module):
         # Wir blähen das h unten einfach auf mit einen grossen Vector von h_residues
         h = torch.cat((h_atoms, h_residues), dim=0)
         mask = torch.cat([mask_atoms, mask_residues])
+
+        # Apply ESM-C FiLM conditioning if pocket embedding is provided (optional)
+        if pocket_emb is not None:
+            # pocket_emb shape: [batch_size, 960]
+            # Expand to match h: [num_nodes, 960] by repeating for each node in batch
+            film_params = self.film_network(pocket_emb)  # [batch_size, 2*joint_nf]
+            gamma, beta = torch.chunk(film_params, 2, dim=-1)  # each [batch_size, joint_nf]
+
+            # Expand to per-node
+            gamma_expanded = gamma[mask.long()]  # [num_nodes, joint_nf]
+            beta_expanded = beta[mask.long()]    # [num_nodes, joint_nf]
+
+            # Apply FiLM: h_new = gamma * h + beta
+            h = gamma_expanded * h + beta_expanded
 
         if self.condition_time:
             if np.prod(t.size()) == 1:

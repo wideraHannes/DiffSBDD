@@ -23,23 +23,23 @@ esmc_path: "path/to/embeddings.npz"
 
 ### Config File Locations
 
-| Config | Purpose |
-|--------|---------|
-| `configs/crossdock_fullatom_cond.yml` | Baseline (production) |
-| `thesis_work/experiments/day3_overfit/configs/` | Overfit experiments |
+| Config                                          | Purpose               |
+| ----------------------------------------------- | --------------------- |
+| `configs/crossdock_fullatom_cond.yml`           | Baseline (production) |
+| `thesis_work/experiments/day3_overfit/configs/` | Overfit experiments   |
 
 ### Key Config Parameters
 
 ```yaml
 # Model architecture
 egnn_params:
-  joint_nf: 128          # Feature dimension (FiLM γ, β size)
-  hidden_nf: 256         # EGNN hidden size
-  n_layers: 6            # EGNN depth
+  joint_nf: 128 # Feature dimension (FiLM γ, β size)
+  hidden_nf: 256 # EGNN hidden size
+  n_layers: 6 # EGNN depth
 
 # Diffusion
 diffusion_params:
-  diffusion_steps: 500   # Denoising steps
+  diffusion_steps: 500 # Denoising steps
   diffusion_loss_type: "l2"
 
 # Training
@@ -59,13 +59,13 @@ eval_params:
 
 ### Files Modified for ESM-C
 
-| File | Lines Changed | What |
-|------|---------------|------|
-| `dataset.py` | ~20 | Load embeddings from .npz |
-| `dynamics.py` | ~30 | FiLM network, apply conditioning |
-| `conditional_model.py` | ~10 | Pass pocket_emb (4 locations) |
-| `en_diffusion.py` | ~5 | Pass pocket_emb (2 locations) |
-| `lightning_modules.py` | ~20 | Handle esmc_path config |
+| File                   | Lines Changed | What                             |
+| ---------------------- | ------------- | -------------------------------- |
+| `dataset.py`           | ~20           | Load embeddings from .npz        |
+| `dynamics.py`          | ~30           | FiLM network, apply conditioning |
+| `conditional_model.py` | ~10           | Pass pocket_emb (4 locations)    |
+| `en_diffusion.py`      | ~5            | Pass pocket_emb (2 locations)    |
+| `lightning_modules.py` | ~20           | Handle esmc_path config          |
 
 ### Where dynamics() is Called
 
@@ -97,20 +97,20 @@ class ProcessedLigandPocketDataset(Dataset):
         self.esmc = None
         if esmc_path:
             self.esmc = np.load(esmc_path, allow_pickle=True)
-    
+
     def __getitem__(self, idx):
         out = {
             'lig_coords': ...,
             'pocket_coords': ...,
             # ... standard fields
         }
-        
+
         if self.esmc is not None:
             pocket_name = self.data['names'][idx]
             out['pocket_emb'] = torch.from_numpy(
                 self.esmc[pocket_name]
             ).float()  # (960,)
-        
+
         return out
 ```
 
@@ -122,7 +122,7 @@ class EGNNDynamics(nn.Module):
     def __init__(self, ..., esmc_conditioning=False, esmc_dim=960):
         super().__init__()
         self.esmc_conditioning = esmc_conditioning
-        
+
         # FiLM network (only if enabled)
         if esmc_conditioning:
             self.pocket_film = nn.Sequential(
@@ -130,18 +130,18 @@ class EGNNDynamics(nn.Module):
                 nn.SiLU(),
                 nn.Linear(esmc_dim, joint_nf * 2)  # γ and β
             )
-    
+
     def forward(self, xh_atoms, xh_residues, t, ..., pocket_emb=None):
         # Encode features
         h_atoms = self.atom_encoder(h_atoms)  # (N, 128)
-        
+
         # Apply FiLM conditioning
         if self.esmc_conditioning and pocket_emb is not None:
             film_out = self.pocket_film(pocket_emb)  # (256,)
             gamma = film_out[..., :self.joint_nf]    # (128,)
             beta = film_out[..., self.joint_nf:]     # (128,)
             h_atoms = gamma * h_atoms + beta         # Modulate!
-        
+
         # Continue with EGNN...
 ```
 
@@ -175,13 +175,13 @@ model = client(
 def extract_pocket_embedding(protein_sequence, pocket_residue_ids):
     # 1. Get full protein embeddings
     embeddings = model.encode(protein_sequence)  # (N_total, 960)
-    
+
     # 2. Extract pocket residues
     pocket_embs = embeddings[pocket_residue_ids]  # (N_pocket, 960)
-    
+
     # 3. Mean pool to single vector
     global_emb = pocket_embs.mean(dim=0)  # (960,)
-    
+
     return global_emb
 ```
 
@@ -239,16 +239,19 @@ for name, param in model.dynamics.pocket_film.named_parameters():
 ## 6. Training Commands
 
 ### Baseline Training
+
 ```bash
 uv run python train.py --config configs/crossdock_fullatom_cond.yml
 ```
 
 ### ESM-C Training
+
 ```bash
 uv run python train.py --config configs/crossdock_fullatom_cond_esmc.yml
 ```
 
 ### Overfit Test (Current)
+
 ```bash
 # Create dataset
 uv run python thesis_work/experiments/day3_overfit/create_overfit_dataset.py \
@@ -260,6 +263,7 @@ uv run python train.py \
 ```
 
 ### Generation
+
 ```bash
 uv run python generate_ligands.py \
     checkpoints/model.ckpt \
@@ -332,9 +336,10 @@ def is_connected(mol):
 ```
 
 **0% Connectivity** means atoms are too far apart for bonds to form. Check:
+
 1. Atom distance distribution (should be 1-2 Å for bonds)
 2. Loss value (should be < 0.2 for good atom positions)
 
 ---
 
-*For full verbose documentation, see `.claude/archive/`*
+_For full verbose documentation, see `.claude/archive/`_

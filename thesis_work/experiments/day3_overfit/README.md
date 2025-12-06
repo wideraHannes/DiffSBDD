@@ -17,19 +17,19 @@ uv run python train.py --config thesis_work/experiments/day3_overfit/configs/day
 
 ## Available Configs
 
-| Config | Description | Command |
-|--------|-------------|---------|
-| `day3_overfit_5sample.yml` | **Recommended** - 5 samples, wandb, batch_size=5 | `uv run python train.py --config thesis_work/experiments/day3_overfit/configs/day3_overfit_5sample.yml` |
-| `day3_baseline_1sample_no_esmc.yml` | 1 sample, no ESMC, baseline test | `uv run python train.py --config thesis_work/experiments/day3_overfit/configs/day3_baseline_1sample_no_esmc.yml` |
-| `day3_aggressive_overfit.yml` | 1 sample, smaller model, lr=1e-2 | `uv run python train.py --config thesis_work/experiments/day3_overfit/configs/day3_aggressive_overfit.yml` |
+| Config                              | Description                                      | Command                                                                                                          |
+| ----------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `day3_overfit_5sample.yml`          | **Recommended** - 5 samples, wandb, batch_size=5 | `uv run python train.py --config thesis_work/experiments/day3_overfit/configs/day3_overfit_5sample.yml`          |
+| `day3_baseline_1sample_no_esmc.yml` | 1 sample, no ESMC, baseline test                 | `uv run python train.py --config thesis_work/experiments/day3_overfit/configs/day3_baseline_1sample_no_esmc.yml` |
+| `day3_aggressive_overfit.yml`       | 1 sample, smaller model, lr=1e-2                 | `uv run python train.py --config thesis_work/experiments/day3_overfit/configs/day3_aggressive_overfit.yml`       |
 
 ## Key Metrics to Watch (in wandb)
 
-| Metric | What it means | Expected for overfit |
-|--------|---------------|---------------------|
-| **`loss/train`** | Total diffusion loss | Should decrease toward 0 |
-| `error_t_lig/train` | Ligand denoising error | Should decrease |
-| `loss/val` | Validation loss | Higher (different molecules) |
+| Metric              | What it means          | Expected for overfit         |
+| ------------------- | ---------------------- | ---------------------------- |
+| **`loss/train`**    | Total diffusion loss   | Should decrease toward 0     |
+| `error_t_lig/train` | Ligand denoising error | Should decrease              |
+| `loss/val`          | Validation loss        | Higher (different molecules) |
 
 ## Dataset Creation
 
@@ -50,6 +50,7 @@ uv run python thesis_work/experiments/day3_overfit/create_overfit_dataset.py \
 ```
 
 ## Data Verified
+
 - 1-sample: 31 ligand atoms, 369 pocket atoms
 - 5-sample: 130 ligand atoms, 1705 pocket atoms
 - Format matches original preprocessing (float64 masks)
@@ -57,10 +58,12 @@ uv run python thesis_work/experiments/day3_overfit/create_overfit_dataset.py \
 ## Results So Far
 
 **aggressive-overfit (epoch 99)**:
+
 - `loss/train: 0.72` (decreasing)
 - `Connectivity/val: 0%` (still an issue)
 
 ## Files
+
 ```
 day3_overfit/
 ├── README.md
@@ -76,3 +79,9 @@ day3_overfit/
 ├── data_overfit/                # Default output for create_overfit_dataset.py
 └── outputs/                     # Training logs
 ```
+
+## open Questions
+
+- Train is at 0.5 loss is this good enough? - Val is astromonomical high since beginning at over 500
+- .log file needs a timestamp prefix
+-

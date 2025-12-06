@@ -1,0 +1,72 @@
+run_name: "overfit-5sample"
+logdir: "thesis_work/experiments/day3_overfit/outputs"
+wandb_params:
+  mode: "online"
+  entity: null
+  group: "overfit-test"
+
+dataset: "crossdock_full"
+datadir: "thesis_work/experiments/day3_overfit/data_5sample"
+esmc_path: null  # Test baseline first
+
+enable_progress_bar: True
+num_sanity_val_steps: 0
+log_every_n_steps: 1
+
+mode: "pocket_conditioning"
+pocket_representation: "full-atom"
+virtual_nodes: False
+
+# Standard params - should work better with 5 samples
+batch_size: 5  # Full batch
+lr: 1.0e-3
+noise_factor: 1.0
+n_epochs: 500
+num_workers: 0
+gpus: 0
+clip_grad: True
+augment_rotation: False
+augment_noise: 0
+accumulate_grad_batches: 1
+
+auxiliary_loss: False
+loss_params:
+  max_weight: 0.001
+  schedule: "linear"
+  clamp_lj: 3.0
+
+# Standard model architecture
+egnn_params:
+  device: "cpu"
+  edge_cutoff_ligand: null
+  edge_cutoff_pocket: 5.0
+  edge_cutoff_interaction: 5.0
+  reflection_equivariant: False
+  joint_nf: 128
+  hidden_nf: 256
+  n_layers: 6
+  attention: True
+  tanh: True
+  norm_constant: 1
+  inv_sublayers: 1
+  sin_embedding: False
+  aggregation_method: "sum"
+  normalization_factor: 100
+
+diffusion_params:
+  diffusion_steps: 500
+  diffusion_noise_schedule: "polynomial_2"
+  diffusion_noise_precision: 5.0e-4
+  diffusion_loss_type: "l2"
+  normalize_factors: [1, 4]
+
+# Evaluation
+eval_epochs: 50
+visualize_sample_epoch: 200
+visualize_chain_epoch: 500
+eval_params:
+  n_eval_samples: 5
+  eval_batch_size: 5
+  smiles_file: null
+  n_visualize_samples: 1
+  keep_frames: 10

@@ -2,13 +2,39 @@ import argparse
 from argparse import Namespace
 from pathlib import Path
 import warnings
+from datetime import datetime
 
 import torch
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import Callback
 import yaml
 import numpy as np
 
 from lightning_modules import LigandPocketDDPM
+
+
+class LossLoggingCallback(Callback):
+    """Callback to print train/val loss to console at end of each epoch."""
+
+    def _timestamp(self):
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        metrics = trainer.callback_metrics
+        train_loss = metrics.get('loss/train')
+        if train_loss is not None:
+            print(f"\n[{self._timestamp()}] [Epoch {trainer.current_epoch}] Train Loss: {train_loss:.6f}")
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        metrics = trainer.callback_metrics
+        val_loss = metrics.get('loss/val')
+        train_loss = metrics.get('loss/train')
+        if val_loss is not None:
+            ts = self._timestamp()
+            epoch_str = f"[Epoch {trainer.current_epoch}]"
+            train_str = f"Train: {train_loss:.6f}" if train_loss is not None else ""
+            val_str = f"Val: {val_loss:.6f}"
+            print(f"\n[{ts}] {epoch_str} {train_str} | {val_str}")
 
 
 def merge_args_and_yaml(args, config_dict):
@@ -124,12 +150,15 @@ if __name__ == "__main__":
         devices = "auto"
         strategy = "auto"
 
+    loss_logging_callback = LossLoggingCallback()
+
     trainer = pl.Trainer(
         max_epochs=args.n_epochs,
         logger=logger,
-        callbacks=[checkpoint_callback],
+        callbacks=[checkpoint_callback, loss_logging_callback],
         enable_progress_bar=args.enable_progress_bar,
         num_sanity_val_steps=args.num_sanity_val_steps,
+        log_every_n_steps=getattr(args, 'log_every_n_steps', 50),
         accelerator=accelerator,
         devices=devices,
         strategy=strategy,

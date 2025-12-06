@@ -1,28 +1,30 @@
-run_name: "day3_overfit_esmc"
+run_name: "aggressive-overfit"
 logdir: "thesis_work/experiments/day3_overfit/outputs"
 wandb_params:
-  mode: "disabled" # Disable for quick test
-  entity: "thesis"
-  group: "day3_overfit"
+  mode: "online"
+  entity: null
+  group: "overfit-test"
 
 dataset: "crossdock_full"
-datadir: "data/processed_crossdock_noH_full_temp"
-esmc_path: "esmc_integration/embeddings_cache" # Directory with train/val/test_esmc_embeddings.npz
+datadir: "thesis_work/experiments/day3_overfit/data_overfit"
+esmc_path: null  # No ESMC for now
+
 enable_progress_bar: True
 num_sanity_val_steps: 0
+log_every_n_steps: 1
 
 mode: "pocket_conditioning"
 pocket_representation: "full-atom"
 virtual_nodes: False
 
-# Overfit settings - 1 sample only
+# AGGRESSIVE overfit settings
 batch_size: 1
-lr: 1.0e-3
+lr: 1.0e-2  # 10x higher learning rate
 noise_factor: 1.0
-n_epochs: 50 # Enough to overfit
+n_epochs: 500
 num_workers: 0
-gpus: 0 # CPU for quick test
-clip_grad: True
+gpus: 0
+clip_grad: False  # Let it learn aggressively
 augment_rotation: False
 augment_noise: 0
 accumulate_grad_batches: 1
@@ -33,15 +35,16 @@ loss_params:
   schedule: "linear"
   clamp_lj: 3.0
 
+# SMALLER model for faster overfitting
 egnn_params:
-  device: "cpu" # CPU for quick test
+  device: "cpu"
   edge_cutoff_ligand: null
   edge_cutoff_pocket: 5.0
   edge_cutoff_interaction: 5.0
   reflection_equivariant: False
-  joint_nf: 128
-  hidden_nf: 256
-  n_layers: 6
+  joint_nf: 64       # Reduced from 128
+  hidden_nf: 128     # Reduced from 256
+  n_layers: 4        # Reduced from 6
   attention: True
   tanh: True
   norm_constant: 1
@@ -50,20 +53,21 @@ egnn_params:
   aggregation_method: "sum"
   normalization_factor: 100
 
+# FEWER diffusion steps for faster convergence
 diffusion_params:
-  diffusion_steps: 500
+  diffusion_steps: 100  # Reduced from 500
   diffusion_noise_schedule: "polynomial_2"
   diffusion_noise_precision: 5.0e-4
   diffusion_loss_type: "l2"
   normalize_factors: [1, 4]
 
-# Evaluation settings (minimal for overfit test)
-eval_epochs: 10 # Check every 10 epochs
-visualize_sample_epoch: 50
-visualize_chain_epoch: 50
+# Evaluation
+eval_epochs: 50
+visualize_sample_epoch: 100
+visualize_chain_epoch: 500
 eval_params:
-  n_eval_samples: 1 # Just the training sample
+  n_eval_samples: 1
   eval_batch_size: 1
-  smiles_file: null # Not needed for overfit test
+  smiles_file: null
   n_visualize_samples: 1
   keep_frames: 10

@@ -1,345 +1,290 @@
-# Code Reference: ESM-C Integration Patterns
+# Code Reference: FiLM Fine-Tuning
 
-> Quick reference for configuration, code patterns, and integration points.
-
----
-
-## 1. Configuration System
-
-### Master Flag: `esmc_conditioning`
-
-This single flag controls all ESM-C behavior:
-
-```yaml
-# BASELINE MODE (original DiffSBDD)
-esmc_conditioning: False
-esmc_path: null
-
-# ESM-C MODE (with conditioning)
-esmc_conditioning: True
-esmc_dim: 960
-esmc_path: "path/to/embeddings.npz"
-```
-
-### Config File Locations
-
-| Config                                          | Purpose               |
-| ----------------------------------------------- | --------------------- |
-| `configs/crossdock_fullatom_cond.yml`           | Baseline (production) |
-| `thesis_work/experiments/day3_overfit/configs/` | Overfit experiments   |
-
-### Key Config Parameters
-
-```yaml
-# Model architecture
-egnn_params:
-  joint_nf: 128 # Feature dimension (FiLM γ, β size)
-  hidden_nf: 256 # EGNN hidden size
-  n_layers: 6 # EGNN depth
-
-# Diffusion
-diffusion_params:
-  diffusion_steps: 500 # Denoising steps
-  diffusion_loss_type: "l2"
-
-# Training
-batch_size: 8
-lr: 1.0e-3
-n_epochs: 1000
-
-# Evaluation
-eval_epochs: 50
-eval_params:
-  n_eval_samples: 100
-```
+> Quick reference for implementing FiLM-only training on pretrained DiffSBDD.
 
 ---
 
-## 2. Code Integration Points
+## 1. Key Files to Modify
 
-### Files Modified for ESM-C
+| File | What to Add | Lines |
+|------|-------------|-------|
+| `lightning_modules.py` | `load_pretrained_with_esmc()`, `_init_film_identity()` | ~200 |
+| `lightning_modules.py` | `film_only_training` flag in `__init__` | ~60 |
+| `lightning_modules.py` | FiLM-only optimizer in `configure_optimizers()` | ~400 |
+| `lightning_modules.py` | `pocket_emb` param in `generate_ligands()` | ~909 |
+| `conditional_model.py` | Thread `pocket_emb` through `sample_given_pocket()` | ~481 |
+| `generate_ligands.py` | Add `--esmc_emb` argument | ~28 |
 
-| File                   | Lines Changed | What                             |
-| ---------------------- | ------------- | -------------------------------- |
-| `dataset.py`           | ~20           | Load embeddings from .npz        |
-| `dynamics.py`          | ~30           | FiLM network, apply conditioning |
-| `conditional_model.py` | ~10           | Pass pocket_emb (4 locations)    |
-| `en_diffusion.py`      | ~5            | Pass pocket_emb (2 locations)    |
-| `lightning_modules.py` | ~20           | Handle esmc_path config          |
-
-### Where dynamics() is Called
-
-Update all 6 locations to pass `pocket_emb`:
-
-```python
-# conditional_model.py (4 calls)
-Line ~253: self.dynamics(..., pocket_emb=pocket.get('emb'))
-Line ~306: self.dynamics(..., pocket_emb=pocket.get('emb'))
-Line ~445: self.dynamics(..., pocket_emb=pocket.get('emb'))
-Line ~119: self.dynamics(..., pocket_emb=pocket.get('emb'))
-
-# en_diffusion.py (2 calls)
-Line ~516: self.dynamics(..., pocket_emb=pocket.get('emb'))
-Line ~270: self.dynamics(..., pocket_emb=pocket.get('emb'))
-```
+**Already done:**
+- `dynamics.py:55-61` — FiLM network defined
+- `dynamics.py:119-131` — Forward pass handles `pocket_emb`
 
 ---
 
-## 3. Core Code Patterns
+## 2. Architecture Overview
 
-### Dataset: Loading ESM-C Embeddings
-
-```python
-# dataset.py
-class ProcessedLigandPocketDataset(Dataset):
-    def __init__(self, data_path, esmc_path=None, ...):
-        self.data = np.load(data_path, allow_pickle=True)
-        self.esmc = None
-        if esmc_path:
-            self.esmc = np.load(esmc_path, allow_pickle=True)
-
-    def __getitem__(self, idx):
-        out = {
-            'lig_coords': ...,
-            'pocket_coords': ...,
-            # ... standard fields
-        }
-
-        if self.esmc is not None:
-            pocket_name = self.data['names'][idx]
-            out['pocket_emb'] = torch.from_numpy(
-                self.esmc[pocket_name]
-            ).float()  # (960,)
-
-        return out
-```
-
-### Dynamics: FiLM Conditioning
+### Current FiLM Network (dynamics.py:55-61)
 
 ```python
-# dynamics.py
-class EGNNDynamics(nn.Module):
-    def __init__(self, ..., esmc_conditioning=False, esmc_dim=960):
-        super().__init__()
-        self.esmc_conditioning = esmc_conditioning
-
-        # FiLM network (only if enabled)
-        if esmc_conditioning:
-            self.pocket_film = nn.Sequential(
-                nn.Linear(esmc_dim, esmc_dim),
-                nn.SiLU(),
-                nn.Linear(esmc_dim, joint_nf * 2)  # γ and β
-            )
-
-    def forward(self, xh_atoms, xh_residues, t, ..., pocket_emb=None):
-        # Encode features
-        h_atoms = self.atom_encoder(h_atoms)  # (N, 128)
-
-        # Apply FiLM conditioning
-        if self.esmc_conditioning and pocket_emb is not None:
-            film_out = self.pocket_film(pocket_emb)  # (256,)
-            gamma = film_out[..., :self.joint_nf]    # (128,)
-            beta = film_out[..., self.joint_nf:]     # (128,)
-            h_atoms = gamma * h_atoms + beta         # Modulate!
-
-        # Continue with EGNN...
-```
-
-### Safe Parameter Passing
-
-```python
-# Always use .get() for optional pocket_emb
-pocket_emb = pocket.get('emb', None)
-
-# Pass to dynamics
-self.dynamics(..., pocket_emb=pocket_emb)
-```
-
----
-
-## 4. ESM-C Embedding Extraction
-
-### Script: `esmc_integration/extraction/extract_esmc_embeddings.py`
-
-```python
-from esm.sdk import client
-
-# Initialize ESM-C
-model = client(
-    model="esmc-300m-2024-12",
-    url="https://forge.evolutionaryscale.ai",
-    token=YOUR_TOKEN
+self.film_network = nn.Sequential(
+    nn.Linear(960, hidden_nf),      # 960 → 128
+    act_fn,                          # SiLU
+    nn.Linear(hidden_nf, 2 * joint_nf)  # 128 → 64 (32 gamma + 32 beta)
 )
-
-# Extract embedding for one pocket
-def extract_pocket_embedding(protein_sequence, pocket_residue_ids):
-    # 1. Get full protein embeddings
-    embeddings = model.encode(protein_sequence)  # (N_total, 960)
-
-    # 2. Extract pocket residues
-    pocket_embs = embeddings[pocket_residue_ids]  # (N_pocket, 960)
-
-    # 3. Mean pool to single vector
-    global_emb = pocket_embs.mean(dim=0)  # (960,)
-
-    return global_emb
 ```
 
-### Cached Embedding Format
+**Parameter count:** ~131K (960×128 + 128×64 + biases)
+
+### FiLM Forward Pass (dynamics.py:119-131)
 
 ```python
-# Saved as .npz file
-embeddings = {
-    "pocket_name_1": np.array([...]),  # shape: (960,)
-    "pocket_name_2": np.array([...]),
-    ...
-}
-np.savez("esmc_embeddings.npz", **embeddings)
+if pocket_emb is not None:
+    film_params = self.film_network(pocket_emb)  # [batch, 64]
+    gamma, beta = torch.chunk(film_params, 2, dim=-1)  # each [batch, 32]
+    gamma_expanded = gamma[mask.long()]  # [num_nodes, 32]
+    beta_expanded = beta[mask.long()]
+    h = gamma_expanded * h + beta_expanded  # FiLM modulation!
 ```
 
 ---
 
-## 5. Debugging Patterns
+## 3. Implementation Snippets
 
-### Check if ESM-C is Active
+### Checkpoint Loading with Identity FiLM
 
 ```python
-# In dynamics.py
-print(f"ESM-C conditioning: {self.esmc_conditioning}")
-print(f"FiLM network exists: {hasattr(self, 'pocket_film')}")
+# Add to lightning_modules.py (after line ~200)
 
-# In training
-if pocket_emb is not None:
-    print(f"Pocket embedding shape: {pocket_emb.shape}")
-    print(f"Embedding stats: mean={pocket_emb.mean():.3f}, std={pocket_emb.std():.3f}")
+@classmethod
+def load_pretrained_with_esmc(cls, checkpoint_path, device='cpu'):
+    """Load pretrained checkpoint, init FiLM to identity."""
+    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    hparams = ckpt['hyper_parameters']
+    model = cls(**hparams)
+
+    # Load with strict=False (FiLM weights missing from checkpoint)
+    missing, unexpected = model.load_state_dict(ckpt['state_dict'], strict=False)
+    print(f"Missing keys (expected): {missing}")
+
+    # Init FiLM to identity: h' = 1*h + 0 = h
+    model._init_film_identity()
+    return model.to(device)
+
+def _init_film_identity(self):
+    """Initialize FiLM for identity transformation (gamma=1, beta=0)."""
+    film = self.ddpm.dynamics.film_network
+    with torch.no_grad():
+        for m in film.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.zeros_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+        # Set gamma=1 in final layer bias
+        final = film[-1]
+        joint_nf = final.out_features // 2
+        final.bias.data[:joint_nf] = 1.0   # gamma = 1
+        final.bias.data[joint_nf:] = 0.0   # beta = 0
 ```
 
-### Check FiLM Parameters
+### FiLM-Only Training Flag
 
 ```python
-# After training
-gamma, beta = model.dynamics.pocket_film(pocket_emb).chunk(2, dim=-1)
-print(f"γ: mean={gamma.mean():.3f}, std={gamma.std():.3f}")
-print(f"β: mean={beta.mean():.3f}, std={beta.std():.3f}")
+# Add to __init__ signature in lightning_modules.py
 
-# If γ ≈ 1 and β ≈ 0, model is ignoring ESM-C
+def __init__(
+    self,
+    ...,
+    film_only_training=False,  # NEW
+    ...
+):
+    ...
+    self.film_only_training = film_only_training
+    self.save_hyperparameters()
+```
+
+### FiLM-Only Optimizer
+
+```python
+# Modify configure_optimizers() in lightning_modules.py
+
+def configure_optimizers(self):
+    if self.film_only_training:
+        # Freeze all parameters
+        for p in self.ddpm.parameters():
+            p.requires_grad = False
+
+        # Unfreeze only FiLM
+        for p in self.ddpm.dynamics.film_network.parameters():
+            p.requires_grad = True
+
+        # Count trainable
+        trainable = sum(p.numel() for p in self.ddpm.parameters() if p.requires_grad)
+        print(f"FiLM-only training: {trainable:,} trainable parameters")
+
+        return torch.optim.AdamW(
+            self.ddpm.dynamics.film_network.parameters(),
+            lr=self.lr,
+            amsgrad=True,
+            weight_decay=1e-6
+        )
+
+    # Original optimizer (full training)
+    return torch.optim.AdamW(
+        self.ddpm.parameters(),
+        lr=self.lr,
+        amsgrad=True,
+        weight_decay=1e-12
+    )
+```
+
+### Thread pocket_emb Through Inference
+
+```python
+# Modify generate_ligands() in lightning_modules.py (line ~909)
+
+def generate_ligands(
+    self,
+    pdb_file,
+    n_samples,
+    ...,
+    pocket_emb=None,  # NEW
+    **kwargs,
+):
+    ...
+    pocket = self.prepare_pocket(residues, repeats=n_samples)
+
+    # ADD: include pocket embedding if provided
+    if pocket_emb is not None:
+        pocket['pocket_emb'] = pocket_emb.unsqueeze(0).expand(n_samples, -1)
+    ...
+```
+
+```python
+# Modify sample_given_pocket() in conditional_model.py (line ~481)
+
+def sample_given_pocket(self, pocket, num_nodes_lig, ...):
+    pocket_emb = pocket.get('pocket_emb', None)  # ADD
+    ...
+    # Pass pocket_emb to sampling methods
+    z_lig, xh_pocket = self.sample_p_zs_given_zt(
+        ..., pocket_emb=pocket_emb  # ADD
+    )
+```
+
+### Command Line Argument
+
+```python
+# Add to generate_ligands.py (after line ~28)
+
+parser.add_argument('--esmc_emb', type=Path, default=None,
+                    help='Path to ESM-C embedding (.pt or .npy)')
+
+# In main:
+pocket_emb = None
+if args.esmc_emb:
+    if args.esmc_emb.suffix == '.pt':
+        pocket_emb = torch.load(args.esmc_emb)
+    else:
+        pocket_emb = torch.from_numpy(np.load(args.esmc_emb)['embedding'])
+
+# Pass to generate_ligands
+molecules_batch = model.generate_ligands(..., pocket_emb=pocket_emb)
+```
+
+---
+
+## 4. Training Config
+
+```yaml
+# configs/film_finetuning.yml
+run_name: "film-finetuning-v1"
+resume: "checkpoints/crossdocked_fullatom_cond.ckpt"
+film_only_training: true
+
+# Higher LR ok for small adapter
+lr: 1.0e-3
+n_epochs: 50
+batch_size: 16
+
+# Must match pretrained checkpoint
+egnn_params:
+  joint_nf: 32
+  hidden_nf: 128
+  n_layers: 5
+```
+
+---
+
+## 5. Commands
+
+### Verify Pretrained Works
+
+```bash
+uv run python generate_ligands.py checkpoints/crossdocked_fullatom_cond.ckpt \
+    --pdbfile example/3rfm.pdb --outfile test.sdf --ref_ligand A:330 --n_samples 5
+```
+
+### FiLM-Only Training
+
+```bash
+uv run python train.py --config thesis_work/experiments/day5_film_finetuning/configs/film_finetuning.yml
+```
+
+### Generate with ESM-C
+
+```bash
+uv run python generate_ligands.py checkpoints/film_finetuned.ckpt \
+    --pdbfile example/3rfm.pdb --outfile esmc_gen.sdf \
+    --ref_ligand A:330 --n_samples 20 --esmc_emb data/esmc/3rfm.pt
+```
+
+---
+
+## 6. Debugging
+
+### Verify Identity Init
+
+```python
+# After loading, FiLM should output gamma=1, beta=0
+pocket_emb = torch.randn(1, 960)
+film_out = model.ddpm.dynamics.film_network(pocket_emb)
+gamma, beta = film_out.chunk(2, dim=-1)
+print(f"gamma mean: {gamma.mean():.4f} (should be ~1.0)")
+print(f"beta mean: {beta.mean():.4f} (should be ~0.0)")
+```
+
+### Verify Only FiLM is Training
+
+```python
+for name, p in model.named_parameters():
+    if p.requires_grad:
+        print(f"Trainable: {name}")
+# Should only show film_network parameters
 ```
 
 ### Check Gradient Flow
 
 ```python
-# Verify FiLM network is learning
-for name, param in model.dynamics.pocket_film.named_parameters():
-    if param.grad is not None:
-        print(f"{name}: grad_norm={param.grad.norm():.4f}")
+# After one backward pass
+for name, p in model.ddpm.dynamics.film_network.named_parameters():
+    if p.grad is not None:
+        print(f"{name}: grad_norm={p.grad.norm():.4f}")
 ```
 
 ---
 
-## 6. Training Commands
-
-### Baseline Training
-
-```bash
-uv run python train.py --config configs/crossdock_fullatom_cond.yml
-```
-
-### ESM-C Training
-
-```bash
-uv run python train.py --config configs/crossdock_fullatom_cond_esmc.yml
-```
-
-### Overfit Test (Current)
-
-```bash
-# Create dataset
-uv run python thesis_work/experiments/day3_overfit/create_overfit_dataset.py \
-    --n_train 5 --n_val 2
-
-# Train
-uv run python train.py \
-    --config thesis_work/experiments/day3_overfit/configs/day3_overfit_5sample.yml
-```
-
-### Generation
-
-```bash
-uv run python generate_ligands.py \
-    checkpoints/model.ckpt \
-    --pdbfile protein.pdb \
-    --ref_ligand A:LIG \
-    --n_samples 100 \
-    --outdir output/
-```
-
----
-
-## 7. File Structure Reference
+## 7. File Structure
 
 ```
 DiffSBDD/
-├── train.py                    # Training entry point
-├── generate_ligands.py         # Inference entry point
-├── test.py                     # Evaluation
-├── dataset.py                  # Data loading (+ESM-C)
-├── lightning_modules.py        # Training orchestration
-├── constants.py                # Atom types, bond tables
-│
+├── train.py                    # Training entry
+├── generate_ligands.py         # Inference entry (+esmc_emb arg)
+├── lightning_modules.py        # +load_pretrained_with_esmc, +film_only
 ├── equivariant_diffusion/
-│   ├── dynamics.py            # Denoising network (+FiLM)
-│   ├── en_diffusion.py        # Diffusion model (joint)
-│   ├── conditional_model.py   # Diffusion model (conditional)
-│   └── egnn_new.py            # EGNN implementation
-│
-├── analysis/
-│   ├── metrics.py             # Validity, connectivity, QED, SA
-│   └── molecule_builder.py    # Bond inference, RDKit
-│
-├── esmc_integration/
-│   ├── extraction/            # ESM-C embedding scripts
-│   └── tests/                 # Integration tests
-│
-├── configs/                   # Training configs
-└── thesis_work/experiments/   # Experiment-specific configs
+│   ├── dynamics.py             # FiLM network (exists)
+│   └── conditional_model.py    # +pocket_emb threading
+├── checkpoints/
+│   └── crossdocked_fullatom_cond.ckpt  # Pretrained baseline
+└── thesis_work/experiments/day5_film_finetuning/
+    └── configs/film_finetuning.yml
 ```
-
----
-
-## 8. Metric Computation
-
-### Where Metrics Are Computed
-
-```python
-# analysis/metrics.py
-class BasicMolecularMetrics:
-    def compute_validity(mol)      # RDKit sanitization
-    def compute_connectivity(mol)  # Largest fragment = 100%
-    def compute_uniqueness(mols)   # Unique SMILES
-    def compute_novelty(mols)      # Not in training set
-
-class MoleculeProperties:
-    def compute_qed(mol)           # Drug-likeness (0-1)
-    def compute_sa(mol)            # Synth. accessibility (1-10)
-```
-
-### Understanding Connectivity
-
-```python
-# Molecule is "connected" if largest fragment has ALL atoms
-from rdkit import Chem
-
-def is_connected(mol):
-    frags = Chem.GetMolFrags(mol, asMols=True)
-    largest = max(frags, key=lambda m: m.GetNumAtoms())
-    return largest.GetNumAtoms() == mol.GetNumAtoms()
-```
-
-**0% Connectivity** means atoms are too far apart for bonds to form. Check:
-
-1. Atom distance distribution (should be 1-2 Å for bonds)
-2. Loss value (should be < 0.2 for good atom positions)
-
----
-
-_For full verbose documentation, see `.claude/archive/`_

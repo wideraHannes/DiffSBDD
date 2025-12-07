@@ -1,0 +1,78 @@
+# Day 5: MPS Baseline Validation
+# Goal: Validate original DiffSBDD works on realistic data with MPS acceleration
+# Expected: Connectivity >50% by epoch 50
+
+run_name: "day5-mps-baseline"
+logdir: "thesis_work/experiments/day5_baseline/outputs"
+wandb_params:
+  mode: "online"
+  entity: null
+  group: "day5-baseline-validation"
+
+# Use regenerated dataset (849 train / 150 val / 100 test)
+dataset: "crossdock_full"
+datadir: "data/processed_crossdock_noH_full_temp"
+esmc_path: null  # Pure baseline - no ESM-C conditioning
+
+enable_progress_bar: True
+num_sanity_val_steps: 0
+log_every_n_steps: 10
+
+mode: "pocket_conditioning"
+pocket_representation: "full-atom"
+virtual_nodes: False
+
+# Training settings - optimized for MPS
+batch_size: 8  # Larger batches for MPS (vs 4 for CPU)
+lr: 1.0e-3
+noise_factor: 1.0
+n_epochs: 150  # Realistic baseline (vs 1000 in original)
+num_workers: 0
+gpus: 0  # MPS doesn't use this flag
+clip_grad: True
+augment_rotation: False
+augment_noise: 0
+accumulate_grad_batches: 1
+
+auxiliary_loss: False
+loss_params:
+  max_weight: 0.001
+  schedule: "linear"
+  clamp_lj: 3.0
+
+# Model architecture - SAME AS ORIGINAL
+egnn_params:
+  device: "cpu"  # CPU training
+  edge_cutoff_ligand: null
+  edge_cutoff_pocket: 5.0
+  edge_cutoff_interaction: 5.0
+  reflection_equivariant: False
+  joint_nf: 128
+  hidden_nf: 256
+  n_layers: 6
+  attention: True
+  tanh: True
+  norm_constant: 1
+  inv_sublayers: 1
+  sin_embedding: False
+  aggregation_method: "sum"
+  normalization_factor: 100
+
+# Diffusion - REDUCED steps for faster convergence
+diffusion_params:
+  diffusion_steps: 200  # ← REDUCED from 500 (compromise speed/quality)
+  diffusion_noise_schedule: "polynomial_2"
+  diffusion_noise_precision: 5.0e-4
+  diffusion_loss_type: "l2"
+  normalize_factors: [1, 4]
+
+# Evaluation - More frequent, more samples
+eval_epochs: 10  # Every 10 epochs (vs 50 in original)
+visualize_sample_epoch: 50
+visualize_chain_epoch: 100
+eval_params:
+  n_eval_samples: 20  # ← INCREASED from 2 (better statistics)
+  eval_batch_size: 20
+  smiles_file: null
+  n_visualize_samples: 5
+  keep_frames: 100

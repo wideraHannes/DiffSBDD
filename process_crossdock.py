@@ -332,21 +332,21 @@ if __name__ == "__main__":
         f"Original dataset sizes - Train: {len(data_split['train'])}, Test: {len(data_split['test'])}"
     )
 
-    # Limit training set to 100 samples for debugging
-    data_split["train"] = data_split["train"][:100]
+    # Limit training set to 1000 samples for baseline validation
+    data_split["train"] = data_split["train"][:1000]
 
-    # Limit test set to 10 samples for debugging
-    data_split["test"] = data_split["test"][:10]
+    # Limit test set to 200 samples for baseline validation
+    data_split["test"] = data_split["test"][:200]
 
-    # Create validation set from training samples (smaller for debugging)
-    data_split["val"] = random.sample(
-        data_split["train"], min(50, len(data_split["train"]))
-    )
+    # Create proper validation split (15% of train, NO OVERLAP with train)
+    val_size = int(0.15 * len(data_split["train"]))
+    data_split["val"] = data_split["train"][:val_size]
+    data_split["train"] = data_split["train"][val_size:]
 
     print(
-        f"DEBUG: Limited dataset sizes - Train: {len(data_split['train'])}, Val: {len(data_split['val'])}, Test: {len(data_split['test'])}"
+        f"BASELINE: Limited dataset sizes - Train: {len(data_split['train'])}, Val: {len(data_split['val'])}, Test: {len(data_split['test'])}"
     )
-    print("DEBUG: Remove these limitations for full dataset processing")
+    print("BASELINE: Using 1000 samples with clean train/val split (no overlap) for validation")
 
     n_train_before = len(data_split["train"])
     n_val_before = len(data_split["val"])

@@ -1,86 +1,86 @@
-# Thesis Work: ESM-C Enhanced DiffSBDD
+# Thesis Work: ESM-C FiLM Conditioning for DiffSBDD
 
-> **Master's Thesis Project Structure**
-> **Student**: Hannes Widera
+> **Master's Thesis**: Protein Context Conditioning for Structure-Based Drug Design
+> **Approach**: FiLM-only fine-tuning of pretrained DiffSBDD
 > **Start Date**: December 2024
-> **Goal**: Implement and evaluate ESM-C protein embeddings for conditional ligand generation
 
 ---
 
-## 📁 Directory Structure
+## Quick Start
+
+```bash
+# Check current status
+cat thesis_work/daily_logs/INDEX.md
+
+# Run today's experiment
+cd thesis_work/experiments/day5_film_finetuning
+```
+
+---
+
+## Directory Structure
 
 ```
 thesis_work/
-├── daily_logs/              # Daily work journals (LOOK HERE FIRST!)
-│   ├── 2024-12-03_day1.md  # What happened each day
-│   ├── 2024-12-04_day2.md
-│   └── INDEX.md            # Quick overview of all days
+├── README.md               # You are here
+├── daily_logs/             # What happened each day
+│   └── INDEX.md            # Start here!
 │
-├── documentation/           # Planning and tracking documents
-│   ├── implementation_plan.md     # Full implementation plan (Days 1-7)
-│   ├── progress_tracker.md        # Current status dashboard
-│   └── session_summaries/         # Detailed session notes
+├── experiments/            # Active experiments
+│   ├── day5_film_finetuning/   # Current: FiLM-only training
+│   └── _legacy/                # Archived: old approaches
 │
-├── experiments/            # Experimental results by day/phase
-│   ├── day1_setup/
-│   ├── day2_embeddings/
-│   ├── day3_overfit/
-│   └── [etc...]
+├── configs/                # Training configs
+├── results/                # Final figures & tables
+│   ├── figures/
+│   └── tables/
 │
-├── analysis/               # Analysis scripts and notebooks
-│   ├── day2_signal_analysis/
-│   ├── embedding_visualization/
-│   └── [etc...]
-│
-├── configs/                # Configuration files for experiments
-│   ├── day3_overfit.yml
-│   ├── day4_small_dataset.yml
-│   └── [etc...]
-│
-└── results/                # Final results and figures
-    ├── metrics/
-    ├── figures/
-    └── tables/
+└── analysis/               # Analysis scripts
 ```
 
 ---
 
-## 🎯 How to Use This Structure
+## Current Approach: FiLM Fine-Tuning
 
-### Starting a New Session
+```
+Pretrained DiffSBDD (2M params, frozen)
+         │
+         ▼
+    ┌─────────┐
+    │  EGNN   │ ← Learned spatial chemistry (frozen)
+    └────┬────┘
+         │
+    ┌────▼────┐
+    │  FiLM   │ ← ESM-C modulation (131K params, trainable)
+    └────┬────┘
+         │
+         ▼
+      Ligand
+```
 
-1. **Check the latest daily log**: `thesis_work/daily_logs/[latest_date].md`
-2. **Review progress tracker**: `thesis_work/documentation/progress_tracker.md`
-3. **See what's next**: Check the implementation plan
-
-### Ending a Session
-
-1. **Update daily log**: Document what you did today
-2. **Update progress tracker**: Mark completed tasks
-3. **Save results**: Put outputs in appropriate experiment folder
-
-### Finding Information
-
-- **"What did I do yesterday?"** → `daily_logs/`
-- **"What's the plan?"** → `documentation/implementation_plan.md`
-- **"Where am I now?"** → `documentation/progress_tracker.md`
-- **"Where are my results?"** → `experiments/dayX_*/`
-
----
-
-## 📊 Current Status
-
-**Phase**: Phase 0 - Scientific Validation
-**Day**: Day 2 - Embedding Analysis
-**Progress**: 10/83 tasks (12%)
-
-**Last Updated**: 2024-12-04
+**Why this works:**
+- Pretrained model already generates valid molecules
+- FiLM learns: "Given this pocket context, adjust features like this"
+- Clear attribution: any improvement = ESM-C value
 
 ---
 
-## 🔗 Quick Links
+## Progress
 
-- [Implementation Plan](documentation/implementation_plan.md) - Full Days 1-7 plan
-- [Progress Tracker](progress_tracker.md) - Real-time status
-- [Daily Log Index](daily_logs/INDEX.md) - All daily summaries
-- [ESM-C Integration Code](../esmc_integration/) - Technical implementation
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Days 1-4 | Archived | Full training attempts (connectivity issues) |
+| **Day 5** | **Current** | FiLM-only fine-tuning |
+| Day 6 | Planned | Evaluation & docking |
+| Day 7 | Planned | HPC scaling & results |
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `.claude/CLAUDE.md` | Claude instructions & quick reference |
+| `thesis_work/daily_logs/INDEX.md` | Daily progress overview |
+| `checkpoints/crossdocked_fullatom_cond.ckpt` | Pretrained baseline |
+| `configs/film_finetuning.yml` | FiLM training config |

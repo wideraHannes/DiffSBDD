@@ -1,37 +1,52 @@
 # Daily Log Index
 
-**Quick reference for all daily work logs**
+## Current Approach: FiLM-Only Fine-Tuning
+
+**Key insight:** Train only FiLM adapter (131K params) on frozen pretrained DiffSBDD (2M params).
 
 ---
 
-## Phase 0: Scientific Validation
+## Progress
 
-### Week 1
+### Phase 1: Full Training Attempts (Archived)
 
-| Date       | Day   | Focus                         | Status         | Link                       |
-| ---------- | ----- | ----------------------------- | -------------- | -------------------------- |
-| 2024-12-03 | Day 1 | ESM-C Setup + Integration     | ✅ Complete    | [View](2024-12-03_day1.md) |
-| 2024-12-04 | Day 2 | Embedding Analysis            | ✅ Complete    | [View](2024-12-04_day2.md) |
-| 2024-12-04 | Day 3 | Overfit Test (5 samples)      | ⚠️ Issues      | [View](2024-12-04_day3.md) |
-| 2024-12-06 | Day 4 | Baseline Model Validation     | 🔄 In Progress | [View](2024-12-06_day4.md) |
-| -          | Day 5 | Medium Dataset (1000 samples) | ⏳ Pending     | -                          |
-| -          | Day 6 | Gradient & FiLM Analysis      | ⏳ Pending     | -                          |
-| -          | Day 7 | Go/No-Go Decision             | ⏳ Pending     | -                          |
+| Day | Focus | Outcome | Notes |
+|-----|-------|---------|-------|
+| Day 1 | ESM-C Setup | Done | Integration working |
+| Day 2 | Embedding Analysis | Done | ESM-C embeddings look good |
+| Day 3 | Overfit Test | Blocked | 0% connectivity issue |
+| Day 4 | Baseline Validation | Partial | Pretrained model works |
 
----
-
-## How to Use
-
-- **📖 Read yesterday's log** to remember what you did
-- **✍️ Update today's log** at the end of each session
-- **📊 Track progress** with status indicators
+**Conclusion:** Full training from scratch has connectivity issues. Pivot to FiLM-only fine-tuning.
 
 ---
 
-## Status Legend
+### Phase 2: FiLM Fine-Tuning (Current)
 
-- ✅ Complete
-- 🔄 In Progress
-- ⏳ Pending
-- ❌ Blocked
-- ⚠️ Issues Found
+| Day | Focus | Status | Link |
+|-----|-------|--------|------|
+| **Day 5** | FiLM-only training implementation | **In Progress** | [View](2024-12-07_day5.md) |
+| Day 6 | Evaluation & docking | Planned | - |
+| Day 7 | HPC scaling & results | Planned | - |
+
+---
+
+## Quick Commands
+
+```bash
+# Check pretrained baseline
+uv run python generate_ligands.py checkpoints/crossdocked_fullatom_cond.ckpt \
+    --pdbfile example/3rfm.pdb --outfile test.sdf --ref_ligand A:330 --n_samples 5
+
+# View full plan
+cat .claude/plans/mellow-percolating-reef.md
+```
+
+---
+
+## Legend
+
+- **In Progress** — Currently working on
+- **Planned** — Next up
+- **Done** — Completed
+- **Blocked** — Has issues

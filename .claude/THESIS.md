@@ -1,6 +1,6 @@
 # Master Thesis: ESM-C Conditioning for Structure-Based Drug Design
 
-> **Research Question**: Can evolutionary context from protein language models (ESM-C) improve structure-based drug design by providing a global steering signal to the diffusion process?
+> **Research Question**: Can evolutionary context from protein language models (ESM-C) improve structure-based drug design through efficient adapter-based conditioning?
 
 ---
 
@@ -8,187 +8,181 @@
 
 ### What We're Testing
 
-A **single global pocket embedding** from ESM-C (960-dimensional) provides complementary information to local geometric features, steering ligand generation toward:
+A **FiLM adapter** trained on ESM-C pocket embeddings can steer a frozen pretrained diffusion model toward:
 
-- More realistic molecular structures
-- Better binding affinity
+- Better binding affinity (lower SMINA scores)
+- Maintained chemical validity and connectivity
 - Improved drug-like properties
 
-### Null Hypothesis (What Might Not Work)
+### Key Innovation: FiLM-Only Fine-Tuning
 
-- **Local geometry dominance**: Binding determined purely by local atomic interactions
-- **Context fragmentation**: ESM-C trained on full proteins may not capture pocket-specific info
-- **Dataset limitations**: CrossDocked artificial complexes may lack evolutionary signal
+```
+Pretrained DiffSBDD (2M params)   →   FROZEN
+                    +
+FiLM Adapter (131K params)        →   TRAINED
 
-**Key Insight**: Either outcome is valuable — proving or disproving contributes to understanding!
+Result: 6.5% new params, 100% of pretrained knowledge preserved
+```
+
+This is analogous to **LoRA for LLMs** or **adapters for vision models**.
 
 ---
 
 ## 2. The Text-to-Image Analogy
 
-| Text-to-Image (Stable Diffusion) | Pocket-to-Ligand (DiffSBDD + ESM-C) |
-| -------------------------------- | ----------------------------------- |
-| Text prompt                      | Protein pocket sequence             |
-| CLIP encoder                     | ESM-C encoder                       |
-| 768-dim text features            | 960-dim pocket features             |
-| Cross-attention / FiLM           | FiLM modulation                     |
-| U-Net denoising                  | EGNN denoising                      |
-| Realistic image                  | Realistic ligand                    |
+| Text-to-Image (Stable Diffusion) | Pocket-to-Ligand (This Thesis) |
+|----------------------------------|--------------------------------|
+| Text prompt | Protein pocket sequence |
+| CLIP encoder | ESM-C encoder |
+| 768-dim text features | 960-dim pocket features |
+| Cross-attention / FiLM | **FiLM adapter** |
+| U-Net (pretrained) | **EGNN (pretrained, frozen)** |
+| Realistic image | Realistic ligand |
 
 **What ESM-C Captures** (that one-hot doesn't):
-
-- Evolutionary conservation (critical residues)
-- Structural context (from full protein)
-- Functional motifs (binding preferences)
-- Physicochemical patterns (hydrophobicity, charge)
+- Evolutionary conservation
+- Structural context
+- Functional motifs
+- Physicochemical patterns
 
 ---
 
-## 3. Architecture Overview
+## 3. Architecture
 
-### Current DiffSBDD (Baseline)
-
-```
-Pocket: coords (N, 3) + one-hot AA (N, 20)  ← Limited!
-Ligand: coords (M, 3) + one-hot atoms (M, types)
-     ↓
-  Encode → joint space (128-dim)
-     ↓
-  EGNN message passing
-     ↓
-  Predict noise ε
-```
-
-### Proposed (+ ESM-C Conditioning)
+### Current Approach: FiLM-Only Fine-Tuning
 
 ```
-OFFLINE (once per pocket):
-  Full protein → ESM-C → (N_total, 960)
-  Extract pocket residues → Mean pool → (960,) global embedding
-  Cache to disk
-
-ONLINE (training/inference):
-  Load cached embedding
-     ↓
-  FiLM: pocket_emb → MLP → [γ, β]  (each 128-dim)
-     ↓
-  h_ligand' = γ ⊙ h_ligand + β  ← STEERING!
-     ↓
-  EGNN (geometric + semantic)
-     ↓
-  Predict noise ε
+                    PRETRAINED (frozen)
+                    ┌─────────────────┐
+Pocket coords ────►│                 │
+Pocket one-hot ───►│      EGNN       │────► Predicted noise
+Ligand coords ────►│   (2M params)   │
+Ligand one-hot ───►│                 │
+                    └────────▲────────┘
+                             │
+                    ┌────────┴────────┐
+                    │  FiLM Adapter   │ ◄─── TRAINED (131K params)
+                    │  h' = γ·h + β   │
+                    └────────▲────────┘
+                             │
+                    ┌────────┴────────┐
+                    │    ESM-C        │
+                    │ (960-dim emb)   │
+                    └─────────────────┘
+                             ▲
+                    Pocket sequence
 ```
 
-### Why FiLM Works
+### FiLM Network
 
-- **Multiplicative modulation** stronger than additive
-- Used in StyleGAN, FiLM-GAN, conditional models
-- Interpretable: can analyze which features are modulated
-- Efficient: applies uniformly to all ligand atoms
+```python
+FiLM: Linear(960 → 128) → SiLU → Linear(128 → 64)
+      Output: gamma (32-dim), beta (32-dim)
+      Modulation: h' = gamma * h + beta
+```
+
+### Why FiLM-Only Works
+
+1. **Pretrained model generates valid molecules** (connectivity solved)
+2. **FiLM learns modulation** without changing core chemistry
+3. **Identity init** ensures baseline behavior initially (γ=1, β=0)
+4. **Fast iteration** (~131K params trains in hours, not days)
 
 ---
 
 ## 4. Implementation Timeline
 
-### Phase 0: Scientific Validation (Week 1) — CURRENT
+### Phase 1: Full Training (Archived)
 
-| Day       | Experiment                    | Status         |
-| --------- | ----------------------------- | -------------- |
-| Day 1     | ESM-C setup + integration     | ✅ Complete    |
-| Day 2     | Embedding signal analysis     | ✅ Complete    |
-| **Day 3** | Overfit test (1-5 samples)    | 🔄 In Progress |
-| Day 4     | Small dataset (100 samples)   | ⏳ Pending     |
-| Day 5     | Medium dataset (1000 samples) | ⏳ Pending     |
-| Day 6     | Gradient & FiLM analysis      | ⏳ Pending     |
-| Day 7     | Go/No-Go decision             | ⏳ Pending     |
+| Day | Focus | Outcome |
+|-----|-------|---------|
+| Days 1-2 | ESM-C setup | Working |
+| Days 3-4 | Full training | **Blocked** (0% connectivity) |
 
-### Phase 1: Full Training (Weeks 2-3)
+**Lesson:** Full training from scratch has stability issues. Pivoted to fine-tuning.
 
-- Launch full training on GPU cluster
-- Monitor metrics, early stopping
-- Full evaluation + thesis figures
+### Phase 2: FiLM Fine-Tuning (Current)
 
-### Go/No-Go Decision Matrix
+| Day | Focus | Status |
+|-----|-------|--------|
+| **Day 5** | Implement FiLM-only training | **In Progress** |
+| Day 6 | Evaluation & docking | Planned |
+| Day 7 | HPC scaling & results | Planned |
 
-| Training Result    | FiLM Activity            | Decision                      |
-| ------------------ | ------------------------ | ----------------------------- |
-| Converges smoothly | Active & learning        | **GO**                        |
-| Converges          | Near identity (γ≈1, β≈0) | GO (model may not need ESM-C) |
-| Unstable           | Gradient issues          | STOP - Debug                  |
-| Diverges           | No clear bug             | STOP - Review                 |
+### Key Implementation Tasks
+
+1. Load pretrained checkpoint with `strict=False`
+2. Initialize FiLM to identity (γ=1, β=0)
+3. Freeze EGNN, train only FiLM
+4. Thread `pocket_emb` through inference
+5. Evaluate binding affinity improvement
 
 ---
 
 ## 5. Evaluation Metrics
 
-### Primary Metrics
+### Primary Comparison
 
-| Metric       | Direction | What It Measures               |
-| ------------ | --------- | ------------------------------ |
-| Validity     | ↑         | Chemically valid molecules     |
-| Connectivity | ↑         | Single connected component     |
-| QED          | ↑         | Drug-likeness (0-1)            |
-| SA Score     | ↓         | Synthetic accessibility (1-10) |
-| Vina Score   | ↓         | Docking affinity               |
-| Diversity    | ↑         | Scaffold diversity             |
+| Metric | Baseline | FiLM + ESM-C | Better |
+|--------|----------|--------------|--------|
+| SMINA (kcal/mol) | -X.XX | -X.XX | Lower |
+| Validity | >90% | >90% | Same |
+| Connectivity | >80% | >80% | Same |
+| QED | 0.XX | 0.XX | Higher |
 
-### Analysis Metrics
+### Statistical Test
 
-- FiLM parameter distribution (γ, β)
-- Gradient attribution (which ESM-C dims matter)
-- t-SNE of pocket embeddings
+Paired t-test across N pockets:
+- Generate 20 molecules per pocket (baseline vs ESM-C)
+- Dock with SMINA
+- Compare mean binding affinity per pocket
 
 ---
 
 ## 6. Expected Outcomes
 
-### Scenario A: ESM-C Improves Metrics ✅
+### Scenario A: ESM-C Improves Binding
 
-| Metric   | Baseline | +ESM-C   |
-| -------- | -------- | -------- |
-| Validity | 75%      | **82%**  |
-| QED      | 0.45     | **0.52** |
-| SA       | 3.2      | **2.8**  |
-| Vina     | -7.5     | **-8.3** |
+**Result:** Statistically significant improvement in SMINA scores (p < 0.05)
 
-**Conclusion**: "Evolutionary context improves SBDD by capturing binding site characteristics beyond local geometry."
+**Conclusion:** "Protein language models provide valuable evolutionary context that improves structure-based drug design when efficiently integrated via FiLM adapters."
 
-### Scenario B: No Improvement ⚠️
+### Scenario B: No Significant Improvement
 
-**Conclusion**: "Local geometric interactions dominate. Evolutionary context doesn't significantly influence ligand generation in CrossDocked."
+**Result:** No statistical difference in binding affinity
 
-**Still valuable**: Negative results publishable if well-analyzed!
+**Conclusion:** "Local geometric interactions dominate ligand binding. Evolutionary context provides complementary but non-essential information for CrossDocked."
+
+**Still valuable:** Negative results with proper analysis are publishable.
 
 ---
 
 ## 7. Thesis Structure (Draft)
 
-1. **Introduction** (5-8 pages): Motivation, problem, opportunity, contributions
-2. **Background** (10-15 pages): SBDD, diffusion models, protein LMs, conditioning
-3. **Method** (8-12 pages): ESM-C extraction, FiLM architecture, training
-4. **Experiments** (12-18 pages): Setup, quantitative results, qualitative analysis, ablations
-5. **Analysis** (8-12 pages): FiLM parameters, gradients, embeddings
-6. **Discussion** (5-8 pages): Findings, limitations, future work
-7. **Conclusion** (2-3 pages)
+| Chapter | Pages | Content |
+|---------|-------|---------|
+| 1. Introduction | 5-8 | Motivation, problem, contributions |
+| 2. Background | 10-15 | SBDD, diffusion models, protein LMs, FiLM |
+| 3. Method | 8-12 | Architecture, FiLM-only fine-tuning |
+| 4. Experiments | 12-18 | Setup, results, statistical analysis |
+| 5. Discussion | 5-8 | Findings, limitations, future work |
+| 6. Conclusion | 2-3 | Summary |
 
-**Total**: ~60-80 pages
+**Total:** ~50-70 pages
 
 ---
 
-## 8. Key Strengths of This Approach
+## 8. Key Strengths
 
-✅ **Novel**: First to use protein LM as global steering signal for SBDD  
-✅ **Low Risk**: Baseline exists, simple implementation (~50 lines)  
-✅ **Rapid**: 8 weeks from start to results  
-✅ **Valuable Either Way**: Positive or negative results publishable  
-✅ **Interpretable**: FiLM parameters show how conditioning works  
-✅ **Extensible**: Can add per-residue embeddings later
+- **Novel:** First FiLM adapter approach for SBDD with protein LMs
+- **Efficient:** 6.5% trainable params, hours not days to train
+- **Low Risk:** Pretrained model works, we just add steering
+- **Interpretable:** FiLM parameters show how ESM-C affects features
+- **Reproducible:** Clear implementation, available checkpoint
 
 ---
 
 ## 9. References
-
-**Core Papers**:
 
 1. Schneuing et al. (2024) - DiffSBDD - _Nature Computational Science_
 2. Hayes et al. (2024) - ESM-C - "Simulating 500M years of evolution"
@@ -198,6 +192,5 @@ ONLINE (training/inference):
 
 ---
 
-_For detailed day-by-day implementation: see `implementation_plan.md`_  
-_For code patterns and config: see `CODE_REFERENCE.md`_  
-_For full verbose docs: see `archive/`_
+_See `CODE_REFERENCE.md` for implementation details_
+_See `plans/mellow-percolating-reef.md` for full implementation plan_

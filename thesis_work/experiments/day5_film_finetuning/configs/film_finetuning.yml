@@ -1,7 +1,7 @@
 # FiLM-Only Fine-Tuning Configuration
 # Loads pretrained checkpoint, freezes EGNN, trains only FiLM adapter
 
-run_name: "film-finetuning-v5"
+run_name: "film-finetuning-Bigger-film"
 logdir: "thesis_work/experiments/day5_film_finetuning/outputs"
 wandb_params:
   mode: "online"
@@ -35,9 +35,9 @@ egnn_params:
   edge_cutoff_pocket: 5.0
   edge_cutoff_interaction: 5.0
   reflection_equivariant: false
-  joint_nf: 32 # Must match checkpoint
-  hidden_nf: 128 # Must match checkpoint
-  n_layers: 5 # Must match checkpoint
+  joint_nf: 128
+  hidden_nf: 256
+  n_layers: 6
   attention: true
   tanh: true
   norm_constant: 1

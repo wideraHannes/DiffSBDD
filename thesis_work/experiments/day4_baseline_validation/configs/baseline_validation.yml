@@ -1,0 +1,79 @@
+# Day 4: Baseline Model Validation
+# Goal: Verify original DiffSBDD trains correctly before adding ESM-C
+# Expected runtime: ~2 hours for 50 epochs on CPU
+
+run_name: "day4-baseline-validation"
+logdir: "thesis_work/experiments/day4_baseline_validation/outputs"
+wandb_params:
+  mode: "online"
+  entity: null
+  group: "baseline-validation"
+
+# Use FULL processed dataset (not overfit subset)
+dataset: "crossdock_full"
+datadir: "data/processed_crossdock_noH_full_temp"
+esmc_path: null # Pure baseline - no ESM-C
+
+enable_progress_bar: True
+num_sanity_val_steps: 0
+log_every_n_steps: 10
+
+mode: "pocket_conditioning"
+pocket_representation: "full-atom"
+virtual_nodes: False
+
+# Training settings
+batch_size: 4 # Small for CPU, increase if GPU
+lr: 1.0e-3
+noise_factor: 1.0
+n_epochs: 50 # Should see learning dynamics in ~2 hours
+num_workers: 0
+gpus: 0 # CPU - change to 1 for GPU
+clip_grad: True
+augment_rotation: False
+augment_noise: 0
+accumulate_grad_batches: 1
+
+auxiliary_loss: False
+loss_params:
+  max_weight: 0.001
+  schedule: "linear"
+  clamp_lj: 3.0
+
+# Model architecture - EXACT SAME AS AUTHORS
+egnn_params:
+  device: "cpu" # Change to "cuda" if GPU available
+  edge_cutoff_ligand: null
+  edge_cutoff_pocket: 5.0
+  edge_cutoff_interaction: 5.0
+  reflection_equivariant: False
+  joint_nf: 128
+  hidden_nf: 256
+  n_layers: 6
+  attention: True
+  tanh: True
+  norm_constant: 1
+  inv_sublayers: 1
+  sin_embedding: False
+  aggregation_method: "sum"
+  normalization_factor: 100
+
+# Diffusion - EXACT SAME AS AUTHORS
+diffusion_params:
+  diffusion_steps: 500
+  diffusion_noise_schedule: "polynomial_2"
+  diffusion_noise_precision: 5.0e-4
+  diffusion_loss_type: "l2"
+  normalize_factors: [1, 4]
+
+# Evaluation settings - MINIMAL to save time
+# Only 2 molecules generated per eval to speed things up
+eval_epochs: 10
+visualize_sample_epoch: 25
+visualize_chain_epoch: 50
+eval_params:
+  n_eval_samples: 2 # Only 2 molecules per eval (saves time!)
+  eval_batch_size: 2
+  smiles_file: null
+  n_visualize_samples: 1
+  keep_frames: 5

@@ -9,18 +9,17 @@ wandb_params:
   group: "film-finetuning"
 
 # Dataset
-dataset: "crossdock_full"
-datadir: "data/processed_crossdock_noH_full"
-esmc_path: "data/processed_crossdock_noH_full"  # Directory with {split}_esmc.npz
+dataset: "crossdock" # Must match pretrained checkpoint (not crossdock_full)
+datadir: "data/processed_crossdock_noH_full_fixed" # Data with correct 10-feature pocket encoding
+esmc_path: "data/processed_crossdock_noH_full_fixed" # Directory with {split}_esmc.npz (same as datadir)
 
 # Pretrained checkpoint (EGNN will be frozen)
-resume: "checkpoints/crossdocked_fullatom_cond.ckpt"
-film_only_training: true  # NEW: freeze EGNN, train only FiLM
+film_only_training: true # NEW: freeze EGNN, train only FiLM
 
 # Training - optimized for FiLM-only
 batch_size: 16
-lr: 1.0e-3           # Higher LR ok for small adapter
-n_epochs: 50         # Much fewer epochs needed
+lr: 1.0e-3 # Higher LR ok for small adapter
+n_epochs: 50 # Much fewer epochs needed
 num_workers: 4
 gpus: 1
 clip_grad: true
@@ -36,9 +35,9 @@ egnn_params:
   edge_cutoff_pocket: 5.0
   edge_cutoff_interaction: 5.0
   reflection_equivariant: false
-  joint_nf: 32         # Must match checkpoint
-  hidden_nf: 128       # Must match checkpoint
-  n_layers: 5          # Must match checkpoint
+  joint_nf: 32 # Must match checkpoint
+  hidden_nf: 128 # Must match checkpoint
+  n_layers: 5 # Must match checkpoint
   attention: true
   tanh: true
   norm_constant: 1
@@ -55,17 +54,18 @@ diffusion_params:
   normalize_factors: [1, 4]
 
 # Evaluation
-eval_epochs: 10
-visualize_sample_epoch: 25
-visualize_chain_epoch: 50
+eval_epochs: 5
+visualize_sample_epoch: 0 # Set to 0 to disable, or N to visualize every N epochs
+visualize_chain_epoch: 0 # Set to 0 to disable, or N to visualize every N epochs
 eval_params:
-  n_eval_samples: 50
-  eval_batch_size: 50
-  smiles_file: "data/processed_crossdock_noH_full/train_smiles.npy"
-  n_visualize_samples: 5
+  n_eval_samples: 5 # Reduced for faster evaluation
+  eval_batch_size: 3
+  smiles_file: "data/processed_crossdock_noH_full_fixed/train_smiles.npy"
+  n_visualize_samples: 3
   keep_frames: 100
 
 # Other
+log_every_n_steps: 1 # Log train loss every step
 enable_progress_bar: true
 num_sanity_val_steps: 0
 augment_rotation: false

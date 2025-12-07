@@ -1,0 +1,76 @@
+# Quick FiLM-only training test (5 samples)
+# Goal: Verify training pipeline works before scaling up
+
+run_name: "film-quick-test"
+logdir: "thesis_work/experiments/day5_film_finetuning/outputs"
+wandb_params:
+  mode: "online"
+  entity: null
+  group: "film-test"
+
+# Use small dataset from legacy
+dataset: "crossdock_full"
+datadir: "thesis_work/experiments/_legacy/day3_overfit/data_5sample"
+esmc_path: "thesis_work/experiments/_legacy/day3_overfit/data_5sample"
+
+# FiLM-only training
+film_only_training: true
+
+# Quick test settings
+batch_size: 5
+lr: 1.0e-3
+n_epochs: 20
+num_workers: 0
+gpus: 0 # CPU for quick test
+
+# Model architecture (must match pretrained checkpoint)
+mode: "pocket_conditioning"
+pocket_representation: "full-atom"
+virtual_nodes: false
+
+egnn_params:
+  device: "cpu"
+  edge_cutoff_ligand: null
+  edge_cutoff_pocket: 5.0
+  edge_cutoff_interaction: 5.0
+  reflection_equivariant: false
+  joint_nf: 32
+  hidden_nf: 128
+  n_layers: 5
+  attention: true
+  tanh: true
+  norm_constant: 1
+  inv_sublayers: 1
+  sin_embedding: false
+  aggregation_method: "sum"
+  normalization_factor: 100
+
+diffusion_params:
+  diffusion_steps: 500
+  diffusion_noise_schedule: "polynomial_2"
+  diffusion_noise_precision: 5.0e-4
+  diffusion_loss_type: "l2"
+  normalize_factors: [1, 4]
+
+# Evaluation
+eval_epochs: 10
+visualize_sample_epoch: 50
+visualize_chain_epoch: 100
+eval_params:
+  n_eval_samples: 2
+  eval_batch_size: 2
+  smiles_file: null
+  n_visualize_samples: 1
+  keep_frames: 10
+
+# Other
+enable_progress_bar: true
+num_sanity_val_steps: 0
+clip_grad: true
+augment_rotation: false
+augment_noise: 0
+auxiliary_loss: false
+loss_params:
+  max_weight: 0.001
+  schedule: "linear"
+  clamp_lj: 3.0

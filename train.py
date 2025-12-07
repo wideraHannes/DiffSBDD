@@ -21,14 +21,16 @@ class LossLoggingCallback(Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         metrics = trainer.callback_metrics
-        train_loss = metrics.get('loss/train')
+        train_loss = metrics.get("loss/train")
         if train_loss is not None:
-            print(f"\n[{self._timestamp()}] [Epoch {trainer.current_epoch}] Train Loss: {train_loss:.6f}")
+            print(
+                f"\n[{self._timestamp()}] [Epoch {trainer.current_epoch}] Train Loss: {train_loss:.6f}"
+            )
 
     def on_validation_epoch_end(self, trainer, pl_module):
         metrics = trainer.callback_metrics
-        val_loss = metrics.get('loss/val')
-        train_loss = metrics.get('loss/train')
+        val_loss = metrics.get("loss/val")
+        train_loss = metrics.get("loss/train")
         if val_loss is not None:
             ts = self._timestamp()
             epoch_str = f"[Epoch {trainer.current_epoch}]"
@@ -55,16 +57,14 @@ def merge_args_and_yaml(args, config_dict):
 
 
 def merge_configs(config, resume_config):
+    """Merge resume_config into config, but config takes priority."""
     for key, value in resume_config.items():
         if isinstance(value, Namespace):
             value = value.__dict__
-        if key in config and config[key] != value:
-            warnings.warn(
-                f"Config parameter '{key}' (value: "
-                f"{config[key]}) will be overwritten with value "
-                f"{value} from the checkpoint."
-            )
-        config[key] = value
+        if key not in config or config[key] is None:
+            # Only use resume_config value if not specified in config
+            config[key] = value
+        # If key is in config with a non-None value, keep the config value
     return config
 
 
@@ -85,9 +85,9 @@ if __name__ == "__main__":
     # Get main config
     ckpt_path = None if args.resume is None else Path(args.resume)
     if args.resume is not None:
-        resume_config = torch.load(ckpt_path, map_location=torch.device("cpu"))[
-            "hyper_parameters"
-        ]
+        resume_config = torch.load(
+            ckpt_path, map_location=torch.device("cpu"), weights_only=False
+        )["hyper_parameters"]
 
         config = merge_configs(config, resume_config)
 
@@ -118,6 +118,8 @@ if __name__ == "__main__":
         node_histogram=histogram,
         pocket_representation=args.pocket_representation,
         virtual_nodes=args.virtual_nodes,
+        esmc_path=getattr(args, "esmc_path", None),
+        film_only_training=getattr(args, "film_only_training", False),
     )
 
     logger = pl.loggers.WandbLogger(
@@ -126,7 +128,7 @@ if __name__ == "__main__":
         group=args.wandb_params.group,
         name=args.run_name,
         id=args.run_name,
-        resume="must" if args.resume is not None else False,
+        resume="allow",  # Use 'allow' to resume if exists, start new otherwise
         entity=args.wandb_params.entity,
         mode=args.wandb_params.mode,
     )
@@ -141,14 +143,23 @@ if __name__ == "__main__":
     )
 
     # Configure accelerator and devices based on GPU availability
-    if args.gpus > 0:
+    # Note: MPS (Apple Silicon) doesn't support float64, so we use CPU on Mac
+    import platform
+
+    if args.gpus > 0 and platform.system() != "Darwin":
+        # Use CUDA GPU on Linux/Windows
         accelerator = "gpu"
         devices = args.gpus
         strategy = "ddp" if args.gpus > 1 else "auto"
     else:
+        # Use CPU (including on Mac where MPS has float64 issues)
         accelerator = "cpu"
         devices = "auto"
         strategy = "auto"
+        if args.gpus > 0 and platform.system() == "Darwin":
+            print(
+                "Note: Using CPU instead of MPS (Apple GPU) due to float64 compatibility issues"
+            )
 
     loss_logging_callback = LossLoggingCallback()
 
@@ -158,10 +169,35 @@ if __name__ == "__main__":
         callbacks=[checkpoint_callback, loss_logging_callback],
         enable_progress_bar=args.enable_progress_bar,
         num_sanity_val_steps=args.num_sanity_val_steps,
-        log_every_n_steps=getattr(args, 'log_every_n_steps', 50),
+        log_every_n_steps=getattr(args, "log_every_n_steps", 50),
         accelerator=accelerator,
         devices=devices,
         strategy=strategy,
     )
 
-    trainer.fit(model=pl_module, ckpt_path=ckpt_path)
+    # For FiLM fine-tuning: load pretrained weights manually with strict=False
+    # This allows missing FiLM keys and size mismatches to be handled
+    if ckpt_path is not None and getattr(args, "film_only_training", False):
+        print(f"\n=== FiLM Fine-Tuning Mode ===")
+        print(f"Loading pretrained weights from: {ckpt_path}")
+
+        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        state_dict = checkpoint["state_dict"]
+
+        # Load with strict=False to allow missing FiLM keys
+        missing, unexpected = pl_module.load_state_dict(state_dict, strict=False)
+
+        print(f"Missing keys (expected for FiLM): {len(missing)}")
+        for k in missing:
+            print(f"  - {k}")
+        print(f"Unexpected keys: {len(unexpected)}")
+
+        # FiLM layers are initialized to identity in the model constructor
+        print("FiLM layers initialized to identity (gamma=1, beta=0)")
+        print("=== Starting FiLM-only training ===\n")
+
+        # Don't pass ckpt_path to trainer - we already loaded weights
+        trainer.fit(model=pl_module)
+    else:
+        # Normal training or full resume
+        trainer.fit(model=pl_module, ckpt_path=ckpt_path)

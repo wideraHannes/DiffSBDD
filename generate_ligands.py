@@ -35,10 +35,10 @@ if __name__ == "__main__":
         args.batch_size = args.n_samples
     assert args.n_samples % args.batch_size == 0
 
-    # Load model
-    model = LigandPocketDDPM.load_from_checkpoint(
-        args.checkpoint, map_location=device)
-    model = model.to(device)
+    # Load model (with strict=False to handle missing FiLM weights in old checkpoints)
+    model = LigandPocketDDPM.load_pretrained_with_esmc(
+        args.checkpoint, device=device)
+    model.eval()
 
     if args.num_nodes_lig is not None:
         num_nodes_lig = torch.ones(args.n_samples, dtype=int) * \

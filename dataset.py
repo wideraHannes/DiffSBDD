@@ -16,7 +16,11 @@ class ProcessedLigandPocketDataset(Dataset):
         # Load ESM-C embeddings if provided (optional)
         if self.use_esmc:
             with np.load(esmc_path, allow_pickle=True) as f:
-                self.esmc_embeddings = torch.from_numpy(f['embeddings']).float()
+                emb = f['embeddings']
+                # Handle object dtype (array of arrays) by stacking
+                if emb.dtype == object:
+                    emb = np.stack([e for e in emb]).astype(np.float32)
+                self.esmc_embeddings = torch.from_numpy(emb).float()
         else:
             self.esmc_embeddings = None
 

@@ -58,9 +58,11 @@ class LigandPocketDDPM(pl.LightningModule):
         pocket_representation="CA",
         virtual_nodes=False,
         esmc_path=None,
+        film_only_training=False,
     ):
         super(LigandPocketDDPM, self).__init__()
         self.save_hyperparameters()
+        self.film_only_training = film_only_training
 
         ddpm_models = {
             "joint": EnVariationalDiffusion,
@@ -204,27 +206,107 @@ class LigandPocketDDPM(pl.LightningModule):
             )
 
     def configure_optimizers(self):
+        if self.film_only_training:
+            # Freeze all EGNN parameters
+            for p in self.ddpm.parameters():
+                p.requires_grad = False
+            # Unfreeze only FiLM network
+            for p in self.ddpm.dynamics.film_network.parameters():
+                p.requires_grad = True
+            # Count trainable params
+            trainable = sum(
+                p.numel() for p in self.ddpm.parameters() if p.requires_grad
+            )
+            print(f"FiLM-only training: {trainable:,} trainable parameters")
+            return torch.optim.AdamW(
+                self.ddpm.dynamics.film_network.parameters(),
+                lr=self.lr,
+                amsgrad=True,
+                weight_decay=1e-6,
+            )
         return torch.optim.AdamW(
             self.ddpm.parameters(), lr=self.lr, amsgrad=True, weight_decay=1e-12
         )
 
+    @classmethod
+    def load_pretrained_with_esmc(
+        cls, checkpoint_path, device="cpu", film_only_training=False
+    ):
+        """
+        Load pretrained checkpoint and initialize FiLM network to identity.
+
+        The pretrained checkpoint doesn't have FiLM weights, so we:
+        1. Load with strict=False (ignores missing film_network keys)
+        2. Initialize FiLM to identity: gamma=1, beta=0 (h' = 1*h + 0 = h)
+        """
+        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        hparams = ckpt["hyper_parameters"]
+
+        # Add film_only_training flag
+        hparams["film_only_training"] = film_only_training
+
+        # Create model with current architecture (includes film_network)
+        model = cls(**hparams)
+
+        # Load state dict with strict=False (FiLM weights will be missing)
+        missing_keys, unexpected_keys = model.load_state_dict(
+            ckpt["state_dict"], strict=False
+        )
+        print(f"Loaded checkpoint. Missing keys (expected FiLM): {len(missing_keys)}")
+
+        # Initialize FiLM to identity transformation
+        model._init_film_identity()
+
+        return model.to(device)
+
+    def _init_film_identity(self):
+        """
+        Initialize FiLM network for identity transformation.
+
+        FiLM: h' = gamma * h + beta
+        Identity: gamma=1, beta=0 → h' = 1*h + 0 = h
+
+        This ensures the model behaves exactly like baseline initially.
+        """
+        import torch.nn as nn
+
+        film = self.ddpm.dynamics.film_network
+        with torch.no_grad():
+            # Zero out all weights and biases
+            for m in film.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.zeros_(m.weight)
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
+            # Set final layer bias: gamma=1, beta=0
+            final_layer = film[-1]  # Last Linear layer
+            joint_nf = final_layer.out_features // 2
+            final_layer.bias.data[:joint_nf] = 1.0  # gamma = 1
+            final_layer.bias.data[joint_nf:] = 0.0  # beta = 0
+        print("FiLM initialized to identity (gamma=1, beta=0)")
+
     def setup(self, stage: Optional[str] = None):
         if stage == "fit":
-            train_esmc = Path(self.datadir, "train_esmc.npz") if self.esmc_path else None
+            train_esmc = (
+                Path(self.datadir, "train_esmc.npz") if self.esmc_path else None
+            )
             val_esmc = Path(self.datadir, "val_esmc.npz") if self.esmc_path else None
             self.train_dataset = ProcessedLigandPocketDataset(
-                Path(self.datadir, "train.npz"), transform=self.data_transform,
-                esmc_path=train_esmc
+                Path(self.datadir, "train.npz"),
+                transform=self.data_transform,
+                esmc_path=train_esmc,
             )
             self.val_dataset = ProcessedLigandPocketDataset(
-                Path(self.datadir, "val.npz"), transform=self.data_transform,
-                esmc_path=val_esmc
+                Path(self.datadir, "val.npz"),
+                transform=self.data_transform,
+                esmc_path=val_esmc,
             )
         elif stage == "test":
             test_esmc = Path(self.datadir, "test_esmc.npz") if self.esmc_path else None
             self.test_dataset = ProcessedLigandPocketDataset(
-                Path(self.datadir, "test.npz"), transform=self.data_transform,
-                esmc_path=test_esmc
+                Path(self.datadir, "test.npz"),
+                transform=self.data_transform,
+                esmc_path=test_esmc,
             )
         else:
             raise NotImplementedError
@@ -464,14 +546,22 @@ class LigandPocketDDPM(pl.LightningModule):
 
             print(f"Evaluation took {time() - tic:.2f} seconds")
 
-        if (self.current_epoch + 1) % self.visualize_sample_epoch == 0:
+        if (
+            self.visualize_sample_epoch
+            and self.visualize_sample_epoch > 0
+            and (self.current_epoch + 1) % self.visualize_sample_epoch == 0
+        ):
             tic = time()
             getattr(self, "sample_and_save" + suffix)(
                 self.eval_params.n_visualize_samples
             )
             print(f"Sample visualization took {time() - tic:.2f} seconds")
 
-        if (self.current_epoch + 1) % self.visualize_chain_epoch == 0:
+        if (
+            self.visualize_chain_epoch
+            and self.visualize_chain_epoch > 0
+            and (self.current_epoch + 1) % self.visualize_chain_epoch == 0
+        ):
             tic = time()
             getattr(self, "sample_chain_and_save" + suffix)(
                 self.eval_params.keep_frames

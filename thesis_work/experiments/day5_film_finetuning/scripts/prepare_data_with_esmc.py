@@ -20,6 +20,7 @@ from time import time
 import argparse
 import sys
 import os
+import shutil
 
 from tqdm import tqdm
 import numpy as np
@@ -375,6 +376,22 @@ def main():
 
             esmc_embeddings.append(embedding)
             esmc_sequences.append(sequence)
+
+            # Copy PDB and SDF files for val/test splits (for evaluation)
+            if split in {"val", "test"}:
+                # Copy PDB file
+                new_rec_name = Path(pdbfile).stem.replace("_", "-")
+                pdb_file_out = Path(split_dir, f"{new_rec_name}.pdb")
+                shutil.copy(pdbfile, pdb_file_out)
+
+                # Copy SDF file
+                new_lig_name = new_rec_name + "_" + Path(sdffile).stem.replace("_", "-")
+                sdf_file_out = Path(split_dir, f"{new_lig_name}.sdf")
+                shutil.copy(sdffile, sdf_file_out)
+
+                # Write pocket residue IDs
+                with open(Path(split_dir, f"{new_lig_name}.txt"), "w") as f:
+                    f.write(" ".join(pocket_data["pocket_ids"]))
 
             count += 1
 

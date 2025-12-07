@@ -270,3 +270,6 @@ Thumbs.db
 *.svg
 !img/*.png
 !figures/*.png
+
+
+thesis/

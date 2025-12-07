@@ -39,6 +39,11 @@ if __name__ == "__main__":
     parser.add_argument("--n_nodes_bias", type=int, default=0)
     parser.add_argument("--n_nodes_min", type=int, default=0)
     parser.add_argument("--skip_existing", action="store_true")
+    parser.add_argument(
+        "--init_film_identity",
+        action="store_true",
+        help="Initialize FiLM to identity (gamma=1, beta=0). Use for baseline checkpoints without FiLM training.",
+    )
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -52,10 +57,24 @@ if __name__ == "__main__":
     times_dir = Path(args.outdir, "pocket_times")
     times_dir.mkdir(exist_ok=args.skip_existing)
 
-    # Load model
+    # Load model (strict=False to allow loading checkpoints without FiLM weights)
     logging.info(f"Loading model from checkpoint: {args.checkpoint}")
-    model = LigandPocketDDPM.load_from_checkpoint(args.checkpoint, map_location=device)
+    model = LigandPocketDDPM.load_from_checkpoint(
+        args.checkpoint, map_location=device, strict=False
+    )
     model = model.to(device)
+
+    # Initialize FiLM to identity if requested (for baseline checkpoint without FiLM training)
+    # This ensures baseline behaves as: h' = 1*h + 0 = h (FiLM has no effect)
+    if args.init_film_identity:
+        film = model.ddpm.dynamics.film_network
+        joint_nf = film[-1].out_features // 2
+        with torch.no_grad():
+            film[-1].weight.zero_()
+            film[-1].bias.zero_()
+            film[-1].bias[:joint_nf] = 1.0  # gamma = 1, beta = 0
+        logging.info("FiLM initialized to identity (gamma=1, beta=0)")
+
     logging.info("Model loaded successfully")
 
     test_files = list(args.test_dir.glob("[!.]*.sdf"))
@@ -102,9 +121,12 @@ if __name__ == "__main__":
                 t_pocket_start = time()
                 logging.info(f"Starting molecule generation for {ligand_name}")
 
-                with open(txt_file, "r") as f:
-                    resi_list = f.read().split()
-                logging.info(f"Read {len(resi_list)} pocket residues from {txt_file}")
+                # Use reference ligand (SDF) to define pocket instead of residue list
+                # This avoids issues with residue ID mismatches (insertion codes, etc.)
+                ref_ligand = str(sdf_file)
+                logging.info(
+                    f"Using reference ligand to define pocket: {sdf_file.name}"
+                )
 
                 if args.fix_n_nodes:
                     # some ligands (e.g. 6JWS_bio1_PT1:A:801) could not be read with sanitize=True
@@ -144,7 +166,7 @@ if __name__ == "__main__":
                     mols_batch = model.generate_ligands(
                         pdb_file,
                         args.batch_size,
-                        resi_list,
+                        ref_ligand=ref_ligand,
                         num_nodes_lig=num_nodes_lig_inflated,
                         timesteps=args.timesteps,
                         sanitize=False,

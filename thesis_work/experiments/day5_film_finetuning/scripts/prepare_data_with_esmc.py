@@ -281,12 +281,13 @@ def main():
 
     # Limit samples and create train/val/test split
     if args.max_samples:
-        # Take max_samples total, split into train(70%)/val(15%)/test(15%)
+        # Take max_samples total, split into train/val/test
+        # Test: max 100 samples, Val: 10%, Train: rest
         total = min(args.max_samples, len(data_split["train"]))
         all_samples = data_split["train"][:total]
 
-        val_size = int(0.15 * total)
-        test_size = int(0.15 * total)
+        test_size = min(100, int(0.10 * total))  # Max 100 test samples
+        val_size = int(0.10 * total)  # 10% for validation
         train_size = total - val_size - test_size
 
         data_split = {

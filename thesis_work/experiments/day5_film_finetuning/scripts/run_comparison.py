@@ -108,6 +108,33 @@ def run_test(
         return False
 
 
+def run_analysis(outdir: Path, name: str) -> bool:
+    """Run analyze_results.py on generated molecules."""
+    print(f"\n{'=' * 60}")
+    print(f"Analyzing {name}")
+    print(f"{'=' * 60}")
+
+    cmd = [
+        sys.executable,
+        str(PROJECT_ROOT / "analyze_results.py"),
+        str(outdir),
+    ]
+
+    print(f"Command: {' '.join(cmd)}")
+    print()
+
+    try:
+        subprocess.run(cmd, cwd=str(PROJECT_ROOT), check=True)
+        print(f"\n{name} analysis completed!")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"\nERROR: {name} analysis failed with exit code {e.returncode}")
+        return False
+    except Exception as e:
+        print(f"\nERROR: {name} analysis failed with exception: {e}")
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run evaluation for baseline or experiment checkpoint"
@@ -141,6 +168,8 @@ def main():
             name="BASELINE (pretrained DiffSBDD)",
             init_film_identity=True,  # Initialize FiLM to identity for fair comparison
         )
+        if results["baseline"]:
+            run_analysis(BASELINE_RESULTS, "BASELINE")
 
     if args.mode in ["experiment", "both"]:
         EXPERIMENT_RESULTS.mkdir(parents=True, exist_ok=True)
@@ -149,6 +178,8 @@ def main():
             outdir=EXPERIMENT_RESULTS,
             name="EXPERIMENT (FiLM fine-tuned)",
         )
+        if results["experiment"]:
+            run_analysis(EXPERIMENT_RESULTS, "EXPERIMENT")
 
     # Summary
     print("\n" + "=" * 60)
@@ -161,15 +192,21 @@ def main():
     print("Results saved to:")
     if "baseline" in results:
         print(f"  Baseline:   {BASELINE_RESULTS}")
+        print(f"    - Molecules: {BASELINE_RESULTS / 'processed'}")
+        print(f"    - Analysis:  {BASELINE_RESULTS / 'analysis_summary.csv'}")
     if "experiment" in results:
         print(f"  Experiment: {EXPERIMENT_RESULTS}")
+        print(f"    - Molecules: {EXPERIMENT_RESULTS / 'processed'}")
+        print(f"    - Analysis:  {EXPERIMENT_RESULTS / 'analysis_summary.csv'}")
     print()
 
-    if all(results.values()):
-        print("Next steps:")
-        print("  1. Compare generated molecules in results/*/processed/")
-        print("  2. Run analysis metrics (validity, QED, SA, docking)")
-        print("  3. Visualize representative molecules")
+    if all(results.values()) and len(results) == 2:
+        print("📊 Compare results:")
+        print(
+            f"  diff {BASELINE_RESULTS / 'analysis_summary.csv'} {EXPERIMENT_RESULTS / 'analysis_summary.csv'}"
+        )
+        print()
+        print("Or load both CSVs in Python/pandas to compare metrics.")
 
 
 if __name__ == "__main__":

@@ -117,7 +117,7 @@ class LigandPocketDDPM(pl.LightningModule):
         smiles_list = (
             None
             if eval_params.smiles_file is None
-            else np.load(eval_params.smiles_file)
+            else np.load(eval_params.smiles_file, allow_pickle=True)
         )
         self.ligand_metrics = BasicMolecularMetrics(self.dataset_info, smiles_list)
         self.molecule_properties = MoleculeProperties()
@@ -291,6 +291,17 @@ class LigandPocketDDPM(pl.LightningModule):
                 Path(self.datadir, "train_esmc.npz") if self.esmc_path else None
             )
             val_esmc = Path(self.datadir, "val_esmc.npz") if self.esmc_path else None
+
+            # Debug: Log ESM-C loading status
+            print(f"\n=== ESM-C Loading Debug ===")
+            print(f"esmc_path config value: {self.esmc_path}")
+            print(f"train_esmc path: {train_esmc}")
+            print(f"val_esmc path: {val_esmc}")
+            if train_esmc:
+                print(f"train_esmc exists: {train_esmc.exists()}")
+            if val_esmc:
+                print(f"val_esmc exists: {val_esmc.exists()}")
+
             self.train_dataset = ProcessedLigandPocketDataset(
                 Path(self.datadir, "train.npz"),
                 transform=self.data_transform,
@@ -301,6 +312,18 @@ class LigandPocketDDPM(pl.LightningModule):
                 transform=self.data_transform,
                 esmc_path=val_esmc,
             )
+
+            # Debug: Verify ESM-C embeddings are loaded
+            print(f"\n=== ESM-C Verification ===")
+            print(f"Train dataset use_esmc: {self.train_dataset.use_esmc}")
+            if self.train_dataset.esmc_embeddings is not None:
+                emb = self.train_dataset.esmc_embeddings
+                print(f"Train embeddings shape: {emb.shape}")
+                print(f"Train embeddings mean: {emb.mean():.6f}, std: {emb.std():.6f}")
+                print(f"Train embeddings sample[0][:5]: {emb[0, :5]}")
+            else:
+                print("WARNING: No ESM-C embeddings loaded for training!")
+            print("=" * 40 + "\n")
         elif stage == "test":
             test_esmc = Path(self.datadir, "test_esmc.npz") if self.esmc_path else None
             self.test_dataset = ProcessedLigandPocketDataset(
@@ -482,6 +505,16 @@ class LigandPocketDDPM(pl.LightningModule):
             self.log(f"{m}/{split}", value, batch_size=batch_size, **kwargs)
 
     def training_step(self, data, *args):
+        # Debug: Check ESM-C embedding in first few steps
+        if self.global_step < 3:
+            if "pocket_emb" in data:
+                emb = data["pocket_emb"]
+                print(
+                    f"\n[Step {self.global_step}] pocket_emb in data: shape={emb.shape}, mean={emb.mean():.6f}, std={emb.std():.6f}"
+                )
+            else:
+                print(f"\n[Step {self.global_step}] WARNING: pocket_emb NOT in data!")
+
         if self.augment_noise > 0:
             raise NotImplementedError
             # Add noise eps ~ N(0, augment_noise) around points.

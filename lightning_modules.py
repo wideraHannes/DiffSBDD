@@ -299,20 +299,24 @@ class LigandPocketDDPM(pl.LightningModule):
         Identity: gamma=1, beta=0 → h' = 1*h + 0 = h
 
         This ensures the model behaves exactly like baseline initially.
+
+        CRITICAL: We keep default PyTorch initialization for hidden layers!
+        Only the final output is set to identity. This ensures gradients can flow.
         """
         import torch.nn as nn
 
         film = self.ddpm.dynamics.film_network
         with torch.no_grad():
-            # Zero out all weights and biases
-            for m in film.modules():
-                if isinstance(m, nn.Linear):
-                    nn.init.zeros_(m.weight)
-                    if m.bias is not None:
-                        nn.init.zeros_(m.bias)
-            # Set final layer bias: gamma=1, beta=0
+            # Keep default initialization for hidden layers (needed for gradient flow!)
+            # Only modify the final layer to produce identity output
             final_layer = film[-1]  # Last Linear layer
             joint_nf = final_layer.out_features // 2
+
+            # Zero the final layer weights and bias
+            nn.init.zeros_(final_layer.weight)
+            nn.init.zeros_(final_layer.bias)
+
+            # Set final layer bias to produce identity: gamma=1, beta=0
             final_layer.bias.data[:joint_nf] = 1.0  # gamma = 1
             final_layer.bias.data[joint_nf:] = 0.0  # beta = 0
         print("FiLM initialized to identity (gamma=1, beta=0)")
@@ -624,10 +628,49 @@ class LigandPocketDDPM(pl.LightningModule):
     def test_step(self, data, *args):
         self._shared_eval(data, "test", *args)
 
+    def on_train_epoch_end(self):
+        """Log epoch-averaged training metrics to wandb."""
+        # PyTorch Lightning automatically computes epoch averages
+        # We just need to explicitly log them for the epoch summary table
+        metrics = self.trainer.callback_metrics
+
+        # Create epoch summary with averaged metrics
+        epoch_summary = {
+            "epoch": self.current_epoch,
+        }
+
+        # Add all train metrics (already averaged by PyTorch Lightning)
+        for key, value in metrics.items():
+            if "/train" in key and value is not None:
+                # Extract metric name (e.g., "loss/train" -> "loss")
+                metric_name = key.split("/")[0]
+                epoch_summary[f"epoch_avg_{metric_name}"] = value.item() if hasattr(value, 'item') else value
+
+        # Log to wandb as epoch-level metrics
+        if epoch_summary:
+            self.log_dict(epoch_summary, on_step=False, on_epoch=True, sync_dist=True)
+
     def on_validation_epoch_end(self):
         # Perform validation on single GPU
         if not self.trainer.is_global_zero:
             return
+
+        # Log epoch-averaged validation metrics
+        metrics = self.trainer.callback_metrics
+        val_summary = {
+            "epoch": self.current_epoch,
+        }
+
+        # Add all validation metrics (already averaged by PyTorch Lightning)
+        for key, value in metrics.items():
+            if "/val" in key and value is not None:
+                # Extract metric name (e.g., "loss/val" -> "loss")
+                metric_name = key.split("/")[0]
+                val_summary[f"epoch_avg_val_{metric_name}"] = value.item() if hasattr(value, 'item') else value
+
+        # Log to wandb as epoch-level validation metrics
+        if val_summary:
+            self.log_dict(val_summary, on_step=False, on_epoch=True, sync_dist=True)
 
         suffix = "" if self.mode == "joint" else "_given_pocket"
 

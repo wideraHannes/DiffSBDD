@@ -6,7 +6,7 @@
 # CRITICAL: Must use --resume flag to load pretrained EGNN weights!
 # Without --resume, you'll train a random model from scratch (which won't work).
 
-run_name: "film-finetuning-test-v1"
+run_name: "film-finetuning-test-v10"
 logdir: "thesis_work/experiments/day5_film_finetuning/outputs"
 wandb_params:
   mode: "online"
@@ -24,9 +24,9 @@ esmc_path: "data/real_testing_dataset_10_tests" # Directory with {split}_esmc.np
 film_only_training: true
 
 # Training - optimized for FiLM-only
-batch_size: 16
-lr: 1.0e-3 # Higher LR ok for small adapter
-n_epochs: 50 # Much fewer epochs needed
+batch_size: 8
+lr: 5.0e-3 # Higher LR ok for small adapter
+n_epochs: 25 # Much fewer epochs needed
 num_workers: 4
 gpus: 1
 clip_grad: true

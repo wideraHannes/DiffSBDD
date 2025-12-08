@@ -155,6 +155,11 @@ class EGNNDynamics(nn.Module):
                 film_params, 2, dim=-1
             )  # each [batch_size, joint_nf]
 
+            # gamma is 1 and beta is 0 initialization print changing values e.g avg
+            print(
+                f"FiLM gamma mean: {gamma.mean().item():.4f}, beta mean: {beta.mean().item():.4f}"
+            )
+
             # Expand to per-node
             gamma_expanded = gamma[mask.long()]  # [num_nodes, joint_nf]
             beta_expanded = beta[mask.long()]  # [num_nodes, joint_nf]

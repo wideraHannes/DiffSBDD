@@ -12,6 +12,7 @@ from rdkit.Chem import Descriptors, QED, Crippen, Lipinski
 from tqdm import tqdm
 import argparse
 import logging
+from scipy.stats import wasserstein_distance
 
 from analysis.metrics import BasicMolecularMetrics, MoleculeProperties
 from constants import dataset_params
@@ -43,22 +44,35 @@ def calculate_basic_properties(molecules):
         if mol is None:
             continue
 
-        properties["molecular_weights"].append(Descriptors.MolWt(mol))
-        properties["logp_values"].append(Crippen.MolLogP(mol))
-        properties["hbd_counts"].append(Descriptors.NumHDonors(mol))
-        properties["hba_counts"].append(Descriptors.NumHAcceptors(mol))
-        properties["rotatable_bonds"].append(Descriptors.NumRotatableBonds(mol))
-        properties["num_atoms"].append(mol.GetNumAtoms())
-        properties["num_heavy_atoms"].append(mol.GetNumHeavyAtoms())
-        properties["qed_scores"].append(QED.qed(mol))
-
-        # SA Score (if available)
         try:
-            from analysis.SA_Score.sascorer import calculateScore
+            # Try to sanitize the molecule first
+            Chem.SanitizeMol(mol)
 
-            properties["sa_scores"].append(calculateScore(mol))
-        except:
-            properties["sa_scores"].append(None)
+            properties["molecular_weights"].append(Descriptors.MolWt(mol))
+            properties["logp_values"].append(Crippen.MolLogP(mol))
+            properties["hbd_counts"].append(Descriptors.NumHDonors(mol))
+            properties["hba_counts"].append(Descriptors.NumHAcceptors(mol))
+            properties["rotatable_bonds"].append(Descriptors.NumRotatableBonds(mol))
+            properties["num_atoms"].append(mol.GetNumAtoms())
+            properties["num_heavy_atoms"].append(mol.GetNumHeavyAtoms())
+
+            # QED calculation can fail for invalid molecules
+            try:
+                properties["qed_scores"].append(QED.qed(mol))
+            except:
+                properties["qed_scores"].append(0.0)
+
+            # SA Score (if available)
+            try:
+                from analysis.SA_Score.sascorer import calculateScore
+                properties["sa_scores"].append(calculateScore(mol))
+            except:
+                properties["sa_scores"].append(None)
+
+        except Exception as e:
+            # Skip invalid molecules entirely
+            logging.debug(f"Skipping invalid molecule: {e}")
+            continue
 
     return properties
 
@@ -68,25 +82,81 @@ def lipinski_compliance(mol):
     if mol is None:
         return 0
 
-    mw = Descriptors.MolWt(mol)
-    logp = Crippen.MolLogP(mol)
-    hbd = Descriptors.NumHDonors(mol)
-    hba = Descriptors.NumHAcceptors(mol)
+    try:
+        Chem.SanitizeMol(mol)
 
-    violations = 0
-    if mw > 500:
-        violations += 1
-    if logp > 5:
-        violations += 1
-    if hbd > 5:
-        violations += 1
-    if hba > 10:
-        violations += 1
+        mw = Descriptors.MolWt(mol)
+        logp = Crippen.MolLogP(mol)
+        hbd = Descriptors.NumHDonors(mol)
+        hba = Descriptors.NumHAcceptors(mol)
 
-    return 4 - violations  # Return number of rules satisfied
+        violations = 0
+        if mw > 500:
+            violations += 1
+        if logp > 5:
+            violations += 1
+        if hbd > 5:
+            violations += 1
+        if hba > 10:
+            violations += 1
+
+        return 4 - violations  # Return number of rules satisfied
+    except:
+        return 0
 
 
-def analyze_results(results_dir, output_file=None):
+def compute_wasserstein_distances(generated_props, ground_truth_df):
+    """
+    Compute Wasserstein distance between generated and ground truth distributions
+
+    Args:
+        generated_props: dict with property lists from calculate_basic_properties
+        ground_truth_df: DataFrame with ground truth properties
+
+    Returns:
+        dict of Wasserstein distances for each property
+    """
+    distances = {}
+
+    # QED
+    if len(generated_props["qed_scores"]) > 0 and "qed_scores" in ground_truth_df.columns:
+        distances["qed_wasserstein"] = wasserstein_distance(
+            generated_props["qed_scores"], ground_truth_df["qed_scores"].dropna()
+        )
+
+    # SA Score
+    if any(generated_props["sa_scores"]) and "sa_scores" in ground_truth_df.columns:
+        gen_sa = [s for s in generated_props["sa_scores"] if s is not None]
+        gt_sa = ground_truth_df["sa_scores"].dropna()
+        if len(gen_sa) > 0 and len(gt_sa) > 0:
+            distances["sa_wasserstein"] = wasserstein_distance(gen_sa, gt_sa)
+
+    # LogP
+    if len(generated_props["logp_values"]) > 0 and "logp_values" in ground_truth_df.columns:
+        distances["logp_wasserstein"] = wasserstein_distance(
+            generated_props["logp_values"], ground_truth_df["logp_values"].dropna()
+        )
+
+    # Molecular Weight
+    if (
+        len(generated_props["molecular_weights"]) > 0
+        and "molecular_weights" in ground_truth_df.columns
+    ):
+        distances["molwt_wasserstein"] = wasserstein_distance(
+            generated_props["molecular_weights"],
+            ground_truth_df["molecular_weights"].dropna(),
+        )
+
+    # Number of atoms
+    if len(generated_props["num_atoms"]) > 0 and "num_atoms" in ground_truth_df.columns:
+        distances["numatoms_wasserstein"] = wasserstein_distance(
+            generated_props["num_atoms"], ground_truth_df["num_atoms"].dropna()
+        )
+
+    return distances
+
+
+def analyze_results(results_dir, output_file=None, ground_truth_file=None):
     """Analyze generated molecules quality"""
 
     results_dir = Path(results_dir)
@@ -231,6 +301,21 @@ def analyze_results(results_dir, output_file=None):
     # Add validity metrics
     summary.update(validity_metrics)
 
+    # Compute Wasserstein distances if ground truth provided
+    if ground_truth_file:
+        ground_truth_path = Path(ground_truth_file)
+        if ground_truth_path.exists():
+            logging.info(f"Computing Wasserstein distances to ground truth...")
+            try:
+                gt_df = pd.read_csv(ground_truth_path)
+                wasserstein_dists = compute_wasserstein_distances(properties, gt_df)
+                summary.update(wasserstein_dists)
+                logging.info(f"Computed {len(wasserstein_dists)} Wasserstein distances")
+            except Exception as e:
+                logging.warning(f"Could not compute Wasserstein distances: {e}")
+        else:
+            logging.warning(f"Ground truth file not found: {ground_truth_path}")
+
     # Print results
     print("\n" + "=" * 60)
     print("DIFFSBDD MOLECULE GENERATION ANALYSIS")
@@ -272,6 +357,14 @@ def analyze_results(results_dir, output_file=None):
         print(f"  Novelty: {validity_metrics['novelty']:.3f}")
         if "diversity" in validity_metrics:
             print(f"  Diversity: {validity_metrics['diversity']:.3f}")
+
+    # Wasserstein distances
+    wasserstein_keys = [k for k in summary.keys() if k.endswith("_wasserstein")]
+    if wasserstein_keys:
+        print(f"\n📏 WASSERSTEIN DISTANCES TO GROUND TRUTH (↓ lower is better):")
+        for key in sorted(wasserstein_keys):
+            metric_name = key.replace("_wasserstein", "").upper()
+            print(f"  {metric_name}: {summary[key]:.4f}")
 
     # Quality assessment
     print(f"\n🎯 QUALITY ASSESSMENT:")
@@ -342,23 +435,31 @@ def analyze_results(results_dir, output_file=None):
         # Save detailed molecule data
         detailed_file = output_path.with_suffix(".detailed.csv")
         detailed_data = []
+        prop_idx = 0  # Track valid molecules in properties dict
         for i, mol in enumerate(all_molecules):
             if mol is not None:
-                row = {
-                    "molecule_id": i,
-                    "smiles": Chem.MolToSmiles(mol),
-                    "molecular_weight": properties["molecular_weights"][i],
-                    "logp": properties["logp_values"][i],
-                    "hbd": properties["hbd_counts"][i],
-                    "hba": properties["hba_counts"][i],
-                    "rotatable_bonds": properties["rotatable_bonds"][i],
-                    "num_atoms": properties["num_atoms"][i],
-                    "qed": properties["qed_scores"][i],
-                    "lipinski_rules": lipinski_scores[i],
-                }
-                if properties["sa_scores"][i] is not None:
-                    row["sa_score"] = properties["sa_scores"][i]
-                detailed_data.append(row)
+                try:
+                    Chem.SanitizeMol(mol)
+                    # Only include molecules that have properties calculated
+                    if prop_idx < len(properties["molecular_weights"]):
+                        row = {
+                            "molecule_id": i,
+                            "smiles": Chem.MolToSmiles(mol),
+                            "molecular_weight": properties["molecular_weights"][prop_idx],
+                            "logp": properties["logp_values"][prop_idx],
+                            "hbd": properties["hbd_counts"][prop_idx],
+                            "hba": properties["hba_counts"][prop_idx],
+                            "rotatable_bonds": properties["rotatable_bonds"][prop_idx],
+                            "num_atoms": properties["num_atoms"][prop_idx],
+                            "qed": properties["qed_scores"][prop_idx],
+                            "lipinski_rules": lipinski_scores[i],
+                        }
+                        if prop_idx < len(properties["sa_scores"]) and properties["sa_scores"][prop_idx] is not None:
+                            row["sa_score"] = properties["sa_scores"][prop_idx]
+                        detailed_data.append(row)
+                        prop_idx += 1
+                except:
+                    continue
 
         pd.DataFrame(detailed_data).to_csv(detailed_file, index=False)
 
@@ -375,12 +476,19 @@ def main():
     parser.add_argument(
         "--output", "-o", type=Path, default=None, help="Output CSV file for results"
     )
+    parser.add_argument(
+        "--ground_truth",
+        "-g",
+        type=Path,
+        default=None,
+        help="Path to ground truth properties CSV for Wasserstein distance calculation",
+    )
     args = parser.parse_args()
 
     if args.output is None:
         args.output = args.results_dir / "analysis_summary.csv"
 
-    analyze_results(args.results_dir, args.output)
+    analyze_results(args.results_dir, args.output, args.ground_truth)
 
 
 if __name__ == "__main__":

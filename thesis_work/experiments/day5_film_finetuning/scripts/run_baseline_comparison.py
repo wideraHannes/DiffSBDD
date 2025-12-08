@@ -154,8 +154,13 @@ def run_test_baseline(
         return False
 
 
-def run_analysis(output_dir: Path, baseline_name: str) -> dict:
+def run_analysis(output_dir: Path, baseline_name: str, ground_truth_file: Path = None) -> dict:
     """Run analyze_results.py on generated molecules.
+
+    Args:
+        output_dir: Directory with generated molecules
+        baseline_name: Name of baseline for logging
+        ground_truth_file: Optional path to ground truth properties CSV
 
     Returns:
         Dict with metrics if successful, None otherwise
@@ -169,6 +174,11 @@ def run_analysis(output_dir: Path, baseline_name: str) -> dict:
         str(PROJECT_ROOT / "analyze_results.py"),
         str(output_dir),
     ]
+
+    # Add ground truth file if provided
+    if ground_truth_file and ground_truth_file.exists():
+        cmd.extend(["--ground_truth", str(ground_truth_file)])
+        print(f"Ground truth: {ground_truth_file}")
 
     print(f"Command: {' '.join(cmd)}")
     print()
@@ -194,78 +204,6 @@ def run_analysis(output_dir: Path, baseline_name: str) -> dict:
     except Exception as e:
         print(f"❌ ERROR: Analysis exception: {e}")
         return {}
-
-
-def create_comparison_table(results: dict, output_file: Path):
-    """Create comparison table of all baseline results."""
-    print(f"\n{'='*70}")
-    print("Creating Comparison Table")
-    print(f"{'='*70}")
-
-    # Prepare data
-    data = []
-    for baseline_name, metrics in results.items():
-        if metrics:
-            row = {"Baseline": baseline_name}
-            row.update(metrics)
-            data.append(row)
-
-    if not data:
-        print("⚠️  No results to compare")
-        return
-
-    df = pd.DataFrame(data)
-
-    # Save to CSV
-    df.to_csv(output_file, index=False)
-    print(f"✅ Comparison saved to: {output_file}")
-    print()
-
-    # Print table
-    print("Baseline Comparison Results:")
-    print(df.to_string(index=False))
-    print()
-
-    # Interpret results
-    print("="*70)
-    print("INTERPRETATION")
-    print("="*70)
-
-    # Extract key metrics (adjust based on what analyze_results.py returns)
-    if len(data) >= 2:
-        baseline1 = data[0]
-        baseline2 = data[1] if len(data) > 1 else None
-        baseline3 = data[2] if len(data) > 2 else None
-
-        # Check connectivity (example - adjust key name based on actual output)
-        conn_key = None
-        for key in baseline1.keys():
-            if "connect" in key.lower():
-                conn_key = key
-                break
-
-        if conn_key:
-            print("\n✓ Connectivity Check:")
-            b1_conn = baseline1.get(conn_key, 0)
-            print(f"  Baseline 1 (No FiLM): {b1_conn:.1%}")
-
-            if baseline2:
-                b2_conn = baseline2.get(conn_key, 0)
-                diff = abs(b1_conn - b2_conn)
-                print(f"  Baseline 2 (Identity): {b2_conn:.1%} (diff: {diff:.1%})")
-                if diff < 0.05:
-                    print("  ✅ Identity FiLM ≈ No FiLM (as expected)")
-                else:
-                    print("  ⚠️  Identity FiLM differs from No FiLM (unexpected!)")
-
-            if baseline3:
-                b3_conn = baseline3.get(conn_key, 0)
-                print(f"  Baseline 3 (Random): {b3_conn:.1%}")
-                if b3_conn < b1_conn * 0.5:
-                    print("  ✅ Random FiLM << No FiLM (as expected)")
-                else:
-                    print("  ⚠️  Random FiLM not much worse (FiLM might not be active!)")
-        print()
 
 
 def main():
@@ -327,6 +265,41 @@ def main():
     output_base = PROJECT_ROOT / args.output_dir
     output_base.mkdir(parents=True, exist_ok=True)
 
+    # Prepare ground truth analysis
+    print("="*70)
+    print("PREPARING GROUND TRUTH ANALYSIS")
+    print("="*70)
+
+    dataset_dir = test_dir.parent  # Go from test/ to dataset root
+    ground_truth_file = dataset_dir / "analysis" / "test_ground_truth_properties.csv"
+
+    if not ground_truth_file.exists():
+        print(f"Ground truth not found at: {ground_truth_file}")
+        print("Generating ground truth analysis...")
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PROJECT_ROOT / "prepare_dataset_analysis.py"),
+                    str(dataset_dir),
+                    "--split",
+                    "test",
+                ],
+                cwd=str(PROJECT_ROOT),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            print(result.stdout)
+            print("✅ Ground truth analysis generated")
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  Failed to generate ground truth: {e.stderr}")
+            ground_truth_file = None
+    else:
+        print(f"✅ Ground truth found: {ground_truth_file}")
+
+    print()
+
     # Select baselines to run
     if args.baseline == "all":
         baselines_to_run = BASELINES
@@ -352,28 +325,42 @@ def main():
                 print(f"⚠️  {baseline['name']} failed, skipping analysis")
                 continue
 
-        # Analyze results
-        metrics = run_analysis(output_dir, baseline["name"])
+        # Analyze results with ground truth
+        metrics = run_analysis(output_dir, baseline["name"], ground_truth_file)
         results[baseline["name"]] = metrics
 
-    # Create comparison
+    # Create comparison table
     if results:
-        comparison_file = output_base / "baseline_comparison.csv"
-        create_comparison_table(results, comparison_file)
+        print("="*70)
+        print("CREATING COMPARISON TABLE")
+        print("="*70)
 
-        print("="*70)
-        print("SUMMARY")
-        print("="*70)
-        print(f"✅ Completed {len(results)}/{len(baselines_to_run)} baselines")
-        print(f"\nResults saved to: {output_base}")
-        print(f"Comparison table: {comparison_file}")
-        print()
-        print("Next steps:")
-        print("  1. Review baseline_comparison.csv")
-        print("  2. Check that Baseline 1 ≈ Baseline 2 (identity works)")
-        print("  3. Check that Baseline 3 << Baseline 1 (FiLM is active)")
-        print("  4. If all pass, proceed with FiLM training!")
-        print()
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PROJECT_ROOT / "create_comparison_table.py"),
+                    "--baseline_dir",
+                    str(output_base),
+                    "--output",
+                    str(output_base / "comparison_table.csv"),
+                ],
+                cwd=str(PROJECT_ROOT),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            print(result.stdout)
+            print()
+            print("="*70)
+            print("✅ BASELINE COMPARISON COMPLETE")
+            print("="*70)
+            print(f"Results: {output_base}")
+            print(f"Table: {output_base / 'comparison_table.csv'}")
+            print()
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  Comparison table creation failed: {e.stderr}")
+            sys.exit(1)
     else:
         print("\n❌ No results generated")
         sys.exit(1)

@@ -34,6 +34,7 @@ class EGNNDynamics(nn.Module):
         edge_cutoff_interaction=None,
         reflection_equivariant=True,
         edge_embedding_dim=None,
+        use_film=True,
     ):
         super().__init__()
         self.mode = mode
@@ -69,10 +70,9 @@ class EGNNDynamics(nn.Module):
 
         # ESM-C FiLM conditioning network (optional)
         # Takes global pocket embedding (960) and outputs scale/shift for joint_nf
+        self.use_film = use_film
         self.film_network = nn.Sequential(
-            nn.Linear(960, 2 * hidden_nf),
-            act_fn,
-            nn.Linear(2 * hidden_nf, hidden_nf),
+            nn.Linear(960, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, 2 * joint_nf),
         )
@@ -147,7 +147,7 @@ class EGNNDynamics(nn.Module):
         mask = torch.cat([mask_atoms, mask_residues])
 
         # Apply ESM-C FiLM conditioning if pocket embedding is provided (optional)
-        if pocket_emb is not None:
+        if self.use_film and pocket_emb is not None:
             # pocket_emb shape: [batch_size, 960]
             # Expand to match h: [num_nodes, 960] by repeating for each node in batch
             film_params = self.film_network(pocket_emb)  # [batch_size, 2*joint_nf]

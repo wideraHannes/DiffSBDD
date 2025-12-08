@@ -230,14 +230,29 @@ class LigandPocketDDPM(pl.LightningModule):
 
     @classmethod
     def load_pretrained_with_esmc(
-        cls, checkpoint_path, device="cpu", film_only_training=False
+        cls,
+        checkpoint_path,
+        device="cpu",
+        film_only_training=False,
+        film_mode="identity",
+        use_film=True
     ):
         """
-        Load pretrained checkpoint and initialize FiLM network to identity.
+        Load pretrained checkpoint with FiLM configuration for baseline experiments.
+
+        Args:
+            checkpoint_path: Path to pretrained checkpoint
+            device: Device to load model on
+            film_only_training: If True, freeze EGNN and train only FiLM
+            film_mode: How to initialize FiLM network
+                - "identity": gamma=1, beta=0 (Baseline 2: no-op verification)
+                - "random": Random initialization (Baseline 3: negative control)
+            use_film: If False, bypass FiLM entirely (Baseline 1: pretrained only)
 
         The pretrained checkpoint doesn't have FiLM weights, so we:
         1. Load with strict=False (ignores missing film_network keys)
-        2. Initialize FiLM to identity: gamma=1, beta=0 (h' = 1*h + 0 = h)
+        2. Initialize FiLM based on film_mode parameter
+        3. Optionally disable FiLM with use_film=False
         """
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
         hparams = ckpt["hyper_parameters"]
@@ -254,8 +269,19 @@ class LigandPocketDDPM(pl.LightningModule):
         )
         print(f"Loaded checkpoint. Missing keys (expected FiLM): {len(missing_keys)}")
 
-        # Initialize FiLM to identity transformation
-        model._init_film_identity()
+        # Configure FiLM based on mode
+        model.ddpm.dynamics.use_film = use_film
+
+        if not use_film:
+            print("FiLM disabled (Baseline 1: Pretrained without FiLM)")
+        elif film_mode == "identity":
+            model._init_film_identity()
+            print("FiLM enabled with identity init (Baseline 2: No-op verification)")
+        elif film_mode == "random":
+            model._init_film_random()
+            print("FiLM enabled with random init (Baseline 3: Negative control)")
+        else:
+            raise ValueError(f"Unknown film_mode: {film_mode}. Use 'identity' or 'random'")
 
         return model.to(device)
 
@@ -284,6 +310,38 @@ class LigandPocketDDPM(pl.LightningModule):
             final_layer.bias.data[:joint_nf] = 1.0  # gamma = 1
             final_layer.bias.data[joint_nf:] = 0.0  # beta = 0
         print("FiLM initialized to identity (gamma=1, beta=0)")
+
+    def _init_film_random(self):
+        """
+        Initialize FiLM network with random weights (PyTorch default initialization).
+
+        This serves as a negative control to verify that:
+        1. FiLM actually affects the model (random should be much worse than identity)
+        2. Identity initialization is necessary for stable training
+
+        If random init performs similarly to identity, it indicates FiLM is not being used.
+        """
+        import torch.nn as nn
+
+        film = self.ddpm.dynamics.film_network
+        with torch.no_grad():
+            # Re-initialize with default PyTorch initialization (Kaiming uniform for Linear layers)
+            for m in film.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
+                    if m.bias is not None:
+                        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
+                        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+                        nn.init.uniform_(m.bias, -bound, bound)
+
+        # Print statistics to verify random initialization
+        final_layer = film[-1]
+        joint_nf = final_layer.out_features // 2
+        gamma_vals = final_layer.bias.data[:joint_nf]
+        beta_vals = final_layer.bias.data[joint_nf:]
+        print(f"FiLM initialized randomly:")
+        print(f"  gamma: mean={gamma_vals.mean():.4f}, std={gamma_vals.std():.4f}")
+        print(f"  beta:  mean={beta_vals.mean():.4f}, std={beta_vals.std():.4f}")
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit":

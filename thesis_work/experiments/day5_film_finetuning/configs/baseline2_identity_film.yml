@@ -1,0 +1,80 @@
+# Baseline 2: Identity-Initialized FiLM (No-Op Verification)
+# Purpose: Verify that FiLM with γ=1, β=0 produces identical results to Baseline 1
+# Expected: Should match Baseline 1 exactly (Connectivity >95%, diff < 1e-6)
+
+run_name: "baseline2-identity-film-no-op"
+logdir: "thesis_work/experiments/day5_film_finetuning/outputs/baselines"
+wandb_params:
+  mode: "online"
+  entity: null
+  group: "film-baselines"
+
+# Dataset
+dataset: "crossdock"
+datadir: "data/dummy_dataset"
+esmc_path: "data/dummy_dataset" # ESM-C embeddings available but FiLM is identity
+
+# Baseline 2 configuration: Identity FiLM (γ=1, β=0)
+film_only_training: false # Not training, just evaluating
+use_film: true # ENABLE FiLM
+film_mode: "identity" # Initialize to identity: h' = 1*h + 0 = h
+
+# Training disabled (evaluation only)
+batch_size: 2
+lr: 1.0e-3
+n_epochs: 1 # Just run 1 epoch for evaluation
+num_workers: 4
+gpus: 1
+clip_grad: true
+
+# Model architecture (must match pretrained checkpoint)
+mode: "pocket_conditioning"
+pocket_representation: "full-atom"
+virtual_nodes: false
+
+egnn_params:
+  device: "cuda"
+  edge_cutoff_ligand: null
+  edge_cutoff_pocket: 5.0
+  edge_cutoff_interaction: 5.0
+  reflection_equivariant: false
+  joint_nf: 32
+  hidden_nf: 128
+  n_layers: 5
+  attention: true
+  tanh: true
+  norm_constant: 1
+  inv_sublayers: 1
+  sin_embedding: false
+  aggregation_method: "sum"
+  normalization_factor: 100
+
+diffusion_params:
+  diffusion_steps: 500
+  diffusion_noise_schedule: "polynomial_2"
+  diffusion_noise_precision: 5.0e-4
+  diffusion_loss_type: "l2"
+  normalize_factors: [1, 4]
+
+# Evaluation
+eval_epochs: 1 # Evaluate immediately
+visualize_sample_epoch: 0
+visualize_chain_epoch: 0
+eval_params:
+  n_eval_samples: 50 # More samples for baseline
+  eval_batch_size: 5
+  smiles_file: "data/processed_crossdock_noH_full_fixed/train_smiles.npy"
+  n_visualize_samples: 3
+  keep_frames: 100
+
+# Other
+log_every_n_steps: 1
+enable_progress_bar: true
+num_sanity_val_steps: 0
+augment_rotation: false
+augment_noise: 0
+auxiliary_loss: false
+loss_params:
+  max_weight: 0.001
+  schedule: "linear"
+  clamp_lj: 3.0

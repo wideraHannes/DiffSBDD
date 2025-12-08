@@ -1,7 +1,7 @@
 # FiLM-Only Fine-Tuning Configuration
 # Loads pretrained checkpoint, freezes EGNN, trains only FiLM adapter
 
-run_name: "film-finetuning-Bigger-film"
+run_name: "film-finetuning-Bigger-film-10-v1"
 logdir: "thesis_work/experiments/day5_film_finetuning/outputs"
 wandb_params:
   mode: "online"
@@ -10,14 +10,14 @@ wandb_params:
 
 # Dataset
 dataset: "crossdock" # Must match pretrained checkpoint (not crossdock_full)
-datadir: "data/processed_crossdock_noH_full_fixed" # Data with correct 10-feature pocket encoding
-esmc_path: "data/processed_crossdock_noH_full_fixed" # Directory with {split}_esmc.npz
+datadir: "data/dummy_dataset" # Data with correct 10-feature pocket encoding
+esmc_path: "data/dummy_dataset" # Directory with {split}_esmc.npz
 
 # Pretrained checkpoint (EGNN will be frozen)
 film_only_training: true # NEW: freeze EGNN, train only FiLM
 
 # Training - optimized for FiLM-only
-batch_size: 16
+batch_size: 2
 lr: 1.0e-3 # Higher LR ok for small adapter
 n_epochs: 50 # Much fewer epochs needed
 num_workers: 4
@@ -35,9 +35,9 @@ egnn_params:
   edge_cutoff_pocket: 5.0
   edge_cutoff_interaction: 5.0
   reflection_equivariant: false
-  joint_nf: 128
-  hidden_nf: 256
-  n_layers: 6
+  joint_nf: 32 # Must match checkpoint
+  hidden_nf: 128 # Must match checkpoint
+  n_layers: 5 # Must match checkpoint
   attention: true
   tanh: true
   norm_constant: 1

@@ -369,6 +369,9 @@ class ConditionalDDPM(EnVariationalDiffusion):
         Diversifies a set of ligands via noise-denoising
         """
 
+        # Extract ESM-C pocket embedding if available
+        pocket_emb = pocket.get('pocket_emb', None)
+
         # Normalize data, take into account volume change in x.
         ligand, pocket = self.normalize(ligand, pocket)
 
@@ -396,11 +399,13 @@ class ConditionalDDPM(EnVariationalDiffusion):
             t_array = t_array / timesteps
 
             z_lig, xh_pocket = self.sample_p_zs_given_zt(
-                s_array, t_array, z_lig.detach(), xh_pocket.detach(), lig_mask, pocket['mask'])
+                s_array, t_array, z_lig.detach(), xh_pocket.detach(), lig_mask, pocket['mask'],
+                pocket_emb=pocket_emb)
 
         # Finally sample p(x, h | z_0).
         x_lig, h_lig, x_pocket, h_pocket = self.sample_p_xh_given_z0(
-            z_lig, xh_pocket, lig_mask, pocket['mask'], n_samples)
+            z_lig, xh_pocket, lig_mask, pocket['mask'], n_samples,
+            pocket_emb=pocket_emb)
 
         self.assert_mean_zero_with_mask(x_lig, lig_mask)
 
@@ -492,6 +497,9 @@ class ConditionalDDPM(EnVariationalDiffusion):
         n_samples = len(pocket['size'])
         device = pocket['x'].device
 
+        # Extract ESM-C pocket embedding if available
+        pocket_emb = pocket.get('pocket_emb', None)
+
         _, pocket = self.normalize(pocket=pocket)
 
         # xh0_pocket is the original pocket while xh_pocket might be a
@@ -526,7 +534,8 @@ class ConditionalDDPM(EnVariationalDiffusion):
             t_array = t_array / timesteps
 
             z_lig, xh_pocket = self.sample_p_zs_given_zt(
-                s_array, t_array, z_lig, xh_pocket, lig_mask, pocket['mask'])
+                s_array, t_array, z_lig, xh_pocket, lig_mask, pocket['mask'],
+                pocket_emb=pocket_emb)
 
             # save frame
             if (s * return_frames) % timesteps == 0:
@@ -536,7 +545,8 @@ class ConditionalDDPM(EnVariationalDiffusion):
 
         # Finally sample p(x, h | z_0).
         x_lig, h_lig, x_pocket, h_pocket = self.sample_p_xh_given_z0(
-            z_lig, xh_pocket, lig_mask, pocket['mask'], n_samples)
+            z_lig, xh_pocket, lig_mask, pocket['mask'], n_samples,
+            pocket_emb=pocket_emb)
 
         self.assert_mean_zero_with_mask(x_lig, lig_mask)
 
@@ -578,6 +588,9 @@ class ConditionalDDPM(EnVariationalDiffusion):
 
         n_samples = len(ligand['size'])
         device = pocket['x'].device
+
+        # Extract ESM-C pocket embedding if available
+        pocket_emb = pocket.get('pocket_emb', None)
 
         # Normalize
         ligand, pocket = self.normalize(ligand, pocket)
@@ -634,7 +647,7 @@ class ConditionalDDPM(EnVariationalDiffusion):
                 # sample inpainted part
                 z_lig_unknown, xh_pocket = self.sample_p_zs_given_zt(
                     s_array, t_array, z_lig, xh_pocket, ligand['mask'],
-                    pocket['mask'])
+                    pocket['mask'], pocket_emb=pocket_emb)
 
                 # sample known nodes from the input
                 com_pocket = scatter_mean(xh_pocket[:, :self.n_dims],
@@ -678,7 +691,8 @@ class ConditionalDDPM(EnVariationalDiffusion):
 
         # Finally sample p(x, h | z_0).
         x_lig, h_lig, x_pocket, h_pocket = self.sample_p_xh_given_z0(
-            z_lig, xh_pocket, ligand['mask'], pocket['mask'], n_samples)
+            z_lig, xh_pocket, ligand['mask'], pocket['mask'], n_samples,
+            pocket_emb=pocket_emb)
 
         # Overwrite last frame with the resulting x and h.
         out_lig[0] = torch.cat([x_lig, h_lig], dim=1)

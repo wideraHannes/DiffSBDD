@@ -9,7 +9,14 @@ This script:
 4. Saves everything aligned by sample name
 
 Usage:
-    python prepare_data_with_esmc.py --basedir data --outdir data/processed_crossdock_noH_full_fixed --max_samples 100
+    # Full dataset
+    uv run thesis_work/experiments/day5_film_finetuning/scripts/prepare_data_with_esmc.py --basedir data --output_name full_dataset
+
+    # Quick validation (5 train, 5 val, 1 test)
+     uv run thesis_work/experiments/day5_film_finetuning/scripts/prepare_data_with_esmc.py --basedir data --output_name dummy_dataset --max_samples 10 --test_samples 1
+
+    # Custom subset
+    uv run thesis_work/experiments/day5_film_finetuning/scripts/prepare_data_with_esmc.py --basedir data --output_name small_dataset --max_samples 100 --test_samples 10
 
 Requirements:
     - ESM Forge API token in .env file (format: ESM_API_TOKEN=xxx or just the token)
@@ -212,12 +219,24 @@ def main():
     )
     parser.add_argument("--basedir", type=Path, default="data")
     parser.add_argument("--outdir", type=Path, default=None)
+    parser.add_argument(
+        "--output_name",
+        type=str,
+        default="processed_crossdock_noH_full_fixed",
+        help="Name for output directory (will be created in basedir)",
+    )
     parser.add_argument("--dist_cutoff", type=float, default=8.0)
     parser.add_argument(
         "--max_samples",
         type=int,
         default=None,
-        help="Limit total samples (split into train/val/test)",
+        help="Limit TRAINING samples only (test set always uses official 100 samples)",
+    )
+    parser.add_argument(
+        "--test_samples",
+        type=int,
+        default=None,
+        help="Limit test samples (default: use all 100 official samples). Set to 1 for quick validation.",
     )
     parser.add_argument(
         "--token_file", type=str, default=".env", help="File containing ESM API token"
@@ -241,7 +260,7 @@ def main():
 
     # Output directory
     if args.outdir is None:
-        processed_dir = Path(args.basedir, "processed_crossdock_noH_full_fixed")
+        processed_dir = Path(args.basedir, args.output_name)
     else:
         processed_dir = args.outdir
 
@@ -279,32 +298,89 @@ def main():
         f"\nOriginal dataset: Train={len(data_split['train'])}, Test={len(data_split['test'])}"
     )
 
-    # Limit samples and create train/val/test split
-    if args.max_samples:
-        # Take max_samples total, split into train/val/test
-        # Test: max 100 samples, Val: 10%, Train: rest
-        total = min(args.max_samples, len(data_split["train"]))
-        all_samples = data_split["train"][:total]
+    # ============================================================================
+    # CRITICAL: Always preserve the official test set from split_by_name.pt
+    # The test set contains 100 samples split by protein name (as in the paper)
+    # ============================================================================
+    official_test = data_split["test"]  # 100 samples - NEVER modify this!
 
-        test_size = min(100, int(0.10 * total))  # Max 100 test samples
-        val_size = int(0.10 * total)  # 10% for validation
-        train_size = total - val_size - test_size
+    # Limit test set if requested (for quick validation)
+    if args.test_samples:
+        test_data = official_test[: args.test_samples]
+        test_note = f"(limited to {args.test_samples} for quick validation)"
+    else:
+        test_data = official_test
+        test_note = "(official, unchanged)"
+
+    # Limit training set if requested
+    if args.max_samples:
+        print(f"\n{'=' * 60}")
+        print(f"Limiting training set to {args.max_samples} samples")
+        print(f"Test set: {len(test_data)} samples {test_note}")
+        print(f"{'=' * 60}")
+
+        # Limit ONLY the training data
+        train_data = data_split["train"][: args.max_samples]
+
+        # Create validation split from LIMITED training data (15%, no overlap)
+        val_size = int(0.15 * len(train_data))
 
         data_split = {
-            "train": all_samples[:train_size],
-            "val": all_samples[train_size : train_size + val_size],
-            "test": all_samples[
-                train_size + val_size : train_size + val_size + test_size
-            ],
+            "train": train_data[val_size:],  # 85% of limited train
+            "val": train_data[:val_size],  # 15% of limited train
+            "test": test_data,
         }
+
+        print(f"\nData split breakdown:")
+        print(
+            f"  Train: {len(data_split['train'])} samples (from first {args.max_samples})"
+        )
+        print(f"  Val:   {len(data_split['val'])} samples (15% of train subset)")
+        print(f"  Test:  {len(data_split['test'])} samples {test_note}")
+
     else:
-        # Create validation split from train
-        val_size = int(0.15 * len(data_split["train"]))
-        data_split["val"] = data_split["train"][:val_size]
-        data_split["train"] = data_split["train"][val_size:]
+        # Full training: still preserve official test set
+        print(f"\n{'=' * 60}")
+        print(f"Using full training set")
+        print(f"Test set: {len(test_data)} samples {test_note}")
+        print(f"{'=' * 60}")
+
+        train_data = data_split["train"]
+        val_size = int(0.15 * len(train_data))
+
+        data_split = {
+            "train": train_data[val_size:],  # 85% of full train
+            "val": train_data[:val_size],  # 15% of full train
+            "test": test_data,
+        }
+
+        print(f"\nData split breakdown:")
+        print(f"  Train: {len(data_split['train'])} samples (85% of full)")
+        print(f"  Val:   {len(data_split['val'])} samples (15% of full)")
+        print(f"  Test:  {len(data_split['test'])} samples {test_note}")
+
+    # Verify no overlap between train and val
+    train_names = set([f"{p}_{l}" for p, l in data_split["train"]])
+    val_names = set([f"{p}_{l}" for p, l in data_split["val"]])
+    test_names = set([f"{p}_{l}" for p, l in data_split["test"]])
+
+    overlap_train_val = train_names & val_names
+    overlap_train_test = train_names & test_names
+    overlap_val_test = val_names & test_names
+
+    if overlap_train_val or overlap_train_test or overlap_val_test:
+        print("\n" + "!" * 60)
+        print("ERROR: Data leakage detected!")
+        print(f"Train-Val overlap: {len(overlap_train_val)} samples")
+        print(f"Train-Test overlap: {len(overlap_train_test)} samples")
+        print(f"Val-Test overlap: {len(overlap_val_test)} samples")
+        print("!" * 60)
+        raise ValueError("Data splits have overlapping samples!")
+    else:
+        print("\n✓ Verified: No overlap between train/val/test splits")
 
     print(
-        f"Processing: Train={len(data_split['train'])}, Val={len(data_split['val'])}, Test={len(data_split['test'])}"
+        f"\nProcessing {len(data_split['train']) + len(data_split['val']) + len(data_split['test'])} total samples..."
     )
 
     # Process each split

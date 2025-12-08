@@ -2,7 +2,7 @@
 # Purpose: Establish ground truth for what "good" performance looks like
 # Expected: Connectivity >95%, Validity >95%, QED 0.4-0.6, Loss 0.5-0.6
 
-run_name: "baseline1-pretrained-no-film"
+run_name: "baseline1-pretrained-no-film-v1"
 logdir: "thesis_work/experiments/day5_film_finetuning/outputs/baselines"
 wandb_params:
   mode: "online"
@@ -61,9 +61,9 @@ eval_epochs: 1 # Evaluate immediately
 visualize_sample_epoch: 0
 visualize_chain_epoch: 0
 eval_params:
-  n_eval_samples: 50 # More samples for baseline
-  eval_batch_size: 5
-  smiles_file: "data/processed_crossdock_noH_full_fixed/train_smiles.npy"
+  n_eval_samples: 5 # More samples for baseline
+  eval_batch_size: 1
+  smiles_file: "data/dummy_dataset/train_smiles.npy"
   n_visualize_samples: 3
   keep_frames: 100
 

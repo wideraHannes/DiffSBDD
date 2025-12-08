@@ -44,6 +44,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Initialize FiLM to identity (gamma=1, beta=0). Use for baseline checkpoints without FiLM training.",
     )
+    parser.add_argument(
+        "--use_film",
+        action="store_true",
+        help="Enable FiLM conditioning (for baseline experiments)",
+    )
+    parser.add_argument(
+        "--film_mode",
+        type=str,
+        choices=["identity", "random"],
+        default="identity",
+        help="FiLM initialization mode: 'identity' (γ=1, β=0) or 'random' (Kaiming uniform)",
+    )
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -57,23 +69,39 @@ if __name__ == "__main__":
     times_dir = Path(args.outdir, "pocket_times")
     times_dir.mkdir(exist_ok=args.skip_existing)
 
-    # Load model (strict=False to allow loading checkpoints without FiLM weights)
+    # Load model - use new loading method if FiLM control requested
     logging.info(f"Loading model from checkpoint: {args.checkpoint}")
-    model = LigandPocketDDPM.load_from_checkpoint(
-        args.checkpoint, map_location=device, strict=False
-    )
-    model = model.to(device)
 
-    # Initialize FiLM to identity if requested (for baseline checkpoint without FiLM training)
-    # This ensures baseline behaves as: h' = 1*h + 0 = h (FiLM has no effect)
-    if args.init_film_identity:
-        film = model.ddpm.dynamics.film_network
-        joint_nf = film[-1].out_features // 2
-        with torch.no_grad():
-            film[-1].weight.zero_()
-            film[-1].bias.zero_()
-            film[-1].bias[:joint_nf] = 1.0  # gamma = 1, beta = 0
-        logging.info("FiLM initialized to identity (gamma=1, beta=0)")
+    if args.use_film or not args.init_film_identity:
+        # Use new loading method with FiLM control
+        use_film = args.use_film  # Explicit FiLM flag
+        film_mode = args.film_mode if args.use_film else "identity"
+
+        logging.info(f"Loading with FiLM control: use_film={use_film}, film_mode={film_mode}")
+        model = LigandPocketDDPM.load_pretrained_with_esmc(
+            args.checkpoint,
+            device=device,
+            film_only_training=False,
+            use_film=use_film,
+            film_mode=film_mode,
+        )
+    else:
+        # Legacy path: load normally and init FiLM to identity
+        model = LigandPocketDDPM.load_from_checkpoint(
+            args.checkpoint, map_location=device, strict=False
+        )
+        model = model.to(device)
+
+        # Initialize FiLM to identity if requested (for baseline checkpoint without FiLM training)
+        # This ensures baseline behaves as: h' = 1*h + 0 = h (FiLM has no effect)
+        if args.init_film_identity:
+            film = model.ddpm.dynamics.film_network
+            joint_nf = film[-1].out_features // 2
+            with torch.no_grad():
+                film[-1].weight.zero_()
+                film[-1].bias.zero_()
+                film[-1].bias[:joint_nf] = 1.0  # gamma = 1, beta = 0
+            logging.info("FiLM initialized to identity (gamma=1, beta=0)")
 
     logging.info("Model loaded successfully")
 

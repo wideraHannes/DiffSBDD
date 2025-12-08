@@ -1,7 +1,12 @@
 # FiLM-Only Fine-Tuning Configuration
 # Loads pretrained checkpoint, freezes EGNN, trains only FiLM adapter
+#
+# USAGE: uv run python train.py --config <this_file> --resume checkpoints/crossdocked_fullatom_cond.ckpt
+#
+# CRITICAL: Must use --resume flag to load pretrained EGNN weights!
+# Without --resume, you'll train a random model from scratch (which won't work).
 
-run_name: "film-finetuning-Bigger-film-10-v1"
+run_name: "film-finetuning-test-v1"
 logdir: "thesis_work/experiments/day5_film_finetuning/outputs"
 wandb_params:
   mode: "online"
@@ -10,14 +15,16 @@ wandb_params:
 
 # Dataset
 dataset: "crossdock" # Must match pretrained checkpoint (not crossdock_full)
-datadir: "data/dummy_dataset" # Data with correct 10-feature pocket encoding
-esmc_path: "data/dummy_dataset" # Directory with {split}_esmc.npz
+datadir: "data/real_testing_dataset_10_tests" # Data with correct 10-feature pocket encoding
+esmc_path: "data/real_testing_dataset_10_tests" # Directory with {split}_esmc.npz
 
-# Pretrained checkpoint (EGNN will be frozen)
-film_only_training: true # NEW: freeze EGNN, train only FiLM
+# FiLM-only training mode
+# When True: freezes EGNN, trains only FiLM (131K params)
+# FiLM is initialized to identity (gamma=1, beta=0) automatically
+film_only_training: true
 
 # Training - optimized for FiLM-only
-batch_size: 2
+batch_size: 16
 lr: 1.0e-3 # Higher LR ok for small adapter
 n_epochs: 50 # Much fewer epochs needed
 num_workers: 4
@@ -60,7 +67,7 @@ visualize_chain_epoch: 0 # Set to 0 to disable, or N to visualize every N epochs
 eval_params:
   n_eval_samples: 5 # Reduced for faster evaluation
   eval_batch_size: 3
-  smiles_file: "data/processed_crossdock_noH_full_fixed/train_smiles.npy"
+  smiles_file: "data/real_testing_dataset_10_tests/train_smiles.npy"
   n_visualize_samples: 3
   keep_frames: 100
 

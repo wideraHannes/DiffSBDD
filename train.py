@@ -192,8 +192,24 @@ if __name__ == "__main__":
             print(f"  - {k}")
         print(f"Unexpected keys: {len(unexpected)}")
 
-        # FiLM layers are initialized to identity in the model constructor
-        print("FiLM layers initialized to identity (gamma=1, beta=0)")
+        # Verify FiLM is initialized to identity (gamma=1, beta=0)
+        film = pl_module.ddpm.dynamics.film_network
+        final_layer = film[-1]
+        joint_nf = final_layer.out_features // 2
+        gamma_vals = final_layer.bias.data[:joint_nf]
+        beta_vals = final_layer.bias.data[joint_nf:]
+        print(f"\nFiLM initialization check:")
+        print(f"  Gamma mean: {gamma_vals.mean():.4f} (expected: 1.0000)")
+        print(f"  Gamma std:  {gamma_vals.std():.4f} (expected: 0.0000)")
+        print(f"  Beta mean:  {beta_vals.mean():.4f} (expected: 0.0000)")
+        print(f"  Beta std:   {beta_vals.std():.4f} (expected: 0.0000)")
+
+        # Verify initialization is correct
+        if abs(gamma_vals.mean() - 1.0) < 0.01 and gamma_vals.std() < 0.01 and abs(beta_vals.mean()) < 0.01:
+            print("✅ FiLM correctly initialized to identity!")
+        else:
+            print("⚠️  WARNING: FiLM NOT initialized to identity! Training may fail.")
+
         print("=== Starting FiLM-only training ===\n")
 
         # Don't pass ckpt_path to trainer - we already loaded weights

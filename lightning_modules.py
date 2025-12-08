@@ -205,6 +205,12 @@ class LigandPocketDDPM(pl.LightningModule):
                 mode=loss_params.schedule,
             )
 
+        # Initialize FiLM to identity if doing FiLM-only training
+        # This ensures the model starts with h' = 1*h + 0 = h (no modulation)
+        # Critical: without this, random FiLM weights destroy pretrained features!
+        if film_only_training:
+            self._init_film_identity()
+
     def configure_optimizers(self):
         if self.film_only_training:
             # Freeze all EGNN parameters

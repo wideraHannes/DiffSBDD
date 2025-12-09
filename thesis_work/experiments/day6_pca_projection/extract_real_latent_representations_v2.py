@@ -37,7 +37,7 @@ def print_success(text):
     print(f"✓ {text}")
 
 
-def extract_h_residues_and_pca(model, dataloader, pca_model, device='cpu'):
+def extract_h_residues_and_pca(model, dataloader, pca_model, device="cpu"):
     """
     Extract real h_residues and PCA embeddings from the model.
 
@@ -59,10 +59,10 @@ def extract_h_residues_and_pca(model, dataloader, pca_model, device='cpu'):
 
             try:
                 # Get pocket data
-                pocket_coords = batch['pocket_coords'].to(device).float()
-                pocket_one_hot = batch['pocket_one_hot'].to(device).float()
-                pocket_mask = batch['pocket_mask'].to(device).long()
-                pocket_emb = batch.get('pocket_emb', None)
+                pocket_coords = batch["pocket_coords"].to(device).float()
+                pocket_one_hot = batch["pocket_one_hot"].to(device).float()
+                pocket_mask = batch["pocket_mask"].to(device).long()
+                pocket_emb = batch.get("pocket_emb", None)
 
                 if pocket_emb is None:
                     print("Warning: No pocket_emb in batch")
@@ -123,15 +123,21 @@ def analyze_lambda_values(h_residues, z_esm_pca, lambda_values):
     z_l2_mean = np.linalg.norm(z_esm_pca, axis=1).mean()
 
     print(f"Baseline Statistics:")
-    print(f"  h_residues: mean={h_residues.mean():.4f}, std={h_std:.4f}, L2={h_l2_mean:.4f}")
-    print(f"  z_esm_pca:  mean={z_esm_pca.mean():.4f}, std={z_std:.4f}, L2={z_l2_mean:.4f}")
+    print(
+        f"  h_residues: mean={h_residues.mean():.4f}, std={h_std:.4f}, L2={h_l2_mean:.4f}"
+    )
+    print(
+        f"  z_esm_pca:  mean={z_esm_pca.mean():.4f}, std={z_std:.4f}, L2={z_l2_mean:.4f}"
+    )
     print()
 
-    print(f"{'Lambda':>8} {'Scaled PCA Std':>15} {'Rel. Contrib':>13} {'L2 Ratio':>10} {'Rating':>10}")
+    print(
+        f"{'Lambda':>8} {'Scaled PCA Std':>15} {'Rel. Contrib':>13} {'L2 Ratio':>10} {'Rating':>10}"
+    )
     print("-" * 70)
 
     best_lambda = None
-    best_score = float('inf')
+    best_score = float("inf")
 
     for lam in lambda_values:
         # Scaled PCA contribution
@@ -156,16 +162,20 @@ def analyze_lambda_values(h_residues, z_esm_pca, lambda_values):
             score = (rel_contrib - 0.35) * 3
             rating = "✗ STRONG"
 
-        print(f"{lam:8.4f} {scaled_pca_std:15.4f} {rel_contrib:12.1%} {l2_ratio:10.3f} {rating:>10}")
+        print(
+            f"{lam:8.4f} {scaled_pca_std:15.4f} {rel_contrib:12.1%} {l2_ratio:10.3f} {rating:>10}"
+        )
 
-        results.append({
-            'lambda': lam,
-            'scaled_pca_std': scaled_pca_std,
-            'rel_contrib': rel_contrib,
-            'l2_ratio': l2_ratio,
-            'rating': rating,
-            'score': score,
-        })
+        results.append(
+            {
+                "lambda": lam,
+                "scaled_pca_std": scaled_pca_std,
+                "rel_contrib": rel_contrib,
+                "l2_ratio": l2_ratio,
+                "rating": rating,
+                "score": score,
+            }
+        )
 
         if score < best_score:
             best_score = score
@@ -192,44 +202,52 @@ def create_visualization(h_residues, z_esm_pca, results, output_path):
     ax1 = plt.subplot(2, 4, 1)
     h_flat = h_residues.flatten()
     h_sample = np.random.choice(h_flat, min(10000, len(h_flat)), replace=False)
-    ax1.hist(h_sample, bins=50, alpha=0.7, edgecolor='black', density=True)
-    ax1.set_xlabel('Value')
-    ax1.set_ylabel('Density')
-    ax1.set_title(f'h_residues Distribution\nMean={h_residues.mean():.3f}, Std={h_residues.std():.3f}')
-    ax1.axvline(0, color='r', linestyle='--', alpha=0.5)
+    ax1.hist(h_sample, bins=50, alpha=0.7, edgecolor="black", density=True)
+    ax1.set_xlabel("Value")
+    ax1.set_ylabel("Density")
+    ax1.set_title(
+        f"h_residues Distribution\nMean={h_residues.mean():.3f}, Std={h_residues.std():.3f}"
+    )
+    ax1.axvline(0, color="r", linestyle="--", alpha=0.5)
 
     # Panel 2: z_esm_pca distribution
     ax2 = plt.subplot(2, 4, 2)
     z_flat = z_esm_pca.flatten()
     z_sample = np.random.choice(z_flat, min(10000, len(z_flat)), replace=False)
-    ax2.hist(z_sample, bins=50, alpha=0.7, edgecolor='black', density=True, color='orange')
-    ax2.set_xlabel('Value')
-    ax2.set_ylabel('Density')
-    ax2.set_title(f'z_esm_pca Distribution\nMean={z_esm_pca.mean():.3f}, Std={z_esm_pca.std():.3f}')
-    ax2.axvline(0, color='r', linestyle='--', alpha=0.5)
+    ax2.hist(
+        z_sample, bins=50, alpha=0.7, edgecolor="black", density=True, color="orange"
+    )
+    ax2.set_xlabel("Value")
+    ax2.set_ylabel("Density")
+    ax2.set_title(
+        f"z_esm_pca Distribution\nMean={z_esm_pca.mean():.3f}, Std={z_esm_pca.std():.3f}"
+    )
+    ax2.axvline(0, color="r", linestyle="--", alpha=0.5)
 
     # Panel 3: Relative Contribution vs Lambda
     ax3 = plt.subplot(2, 4, 3)
-    lambdas = [r['lambda'] for r in results]
-    rel_contribs = [r['rel_contrib'] for r in results]
-    ax3.plot(lambdas, rel_contribs, 'bo-', linewidth=2, markersize=8)
-    ax3.axhline(0.15, color='g', linestyle='--', alpha=0.5, label='Ideal min (15%)')
-    ax3.axhline(0.35, color='g', linestyle='--', alpha=0.5, label='Ideal max (35%)')
-    ax3.axhline(0.50, color='r', linestyle='--', alpha=0.5, label='Too strong (50%)')
-    ax3.fill_between(lambdas, 0.15, 0.35, alpha=0.2, color='green', label='Optimal range')
-    ax3.set_xlabel('Lambda (λ)')
-    ax3.set_ylabel('Relative Contribution')
-    ax3.set_title('Relative Contribution vs Lambda')
+    lambdas = [r["lambda"] for r in results]
+    rel_contribs = [r["rel_contrib"] for r in results]
+    ax3.plot(lambdas, rel_contribs, "bo-", linewidth=2, markersize=8)
+    ax3.axhline(0.15, color="g", linestyle="--", alpha=0.5, label="Ideal min (15%)")
+    ax3.axhline(0.35, color="g", linestyle="--", alpha=0.5, label="Ideal max (35%)")
+    ax3.axhline(0.50, color="r", linestyle="--", alpha=0.5, label="Too strong (50%)")
+    ax3.fill_between(
+        lambdas, 0.15, 0.35, alpha=0.2, color="green", label="Optimal range"
+    )
+    ax3.set_xlabel("Lambda (λ)")
+    ax3.set_ylabel("Relative Contribution")
+    ax3.set_title("Relative Contribution vs Lambda")
     ax3.legend(fontsize=8)
     ax3.grid(True, alpha=0.3)
 
     # Panel 4: L2 Norm Ratio vs Lambda
     ax4 = plt.subplot(2, 4, 4)
-    l2_ratios = [r['l2_ratio'] for r in results]
-    ax4.plot(lambdas, l2_ratios, 'ro-', linewidth=2, markersize=8)
-    ax4.set_xlabel('Lambda (λ)')
-    ax4.set_ylabel('L2 Norm Ratio')
-    ax4.set_title('L2 Norm Ratio (PCA/h_residues)')
+    l2_ratios = [r["l2_ratio"] for r in results]
+    ax4.plot(lambdas, l2_ratios, "ro-", linewidth=2, markersize=8)
+    ax4.set_xlabel("Lambda (λ)")
+    ax4.set_ylabel("L2 Norm Ratio")
+    ax4.set_title("L2 Norm Ratio (PCA/h_residues)")
     ax4.grid(True, alpha=0.3)
 
     # Panels 5-8: Distribution comparisons for selected lambdas
@@ -242,23 +260,42 @@ def create_visualization(h_residues, z_esm_pca, results, output_path):
 
         # Sample for plotting
         h_sample = np.random.choice(h_flat, min(5000, len(h_flat)), replace=False)
-        z_sample = np.random.choice(scaled_pca.flatten(), min(5000, len(scaled_pca.flatten())), replace=False)
+        z_sample = np.random.choice(
+            scaled_pca.flatten(), min(5000, len(scaled_pca.flatten())), replace=False
+        )
 
-        ax.hist(h_sample, bins=40, alpha=0.5, label='h_residues', density=True, edgecolor='black')
-        ax.hist(z_sample, bins=40, alpha=0.5, label=f'λ·z_pca (λ={lam})', density=True, edgecolor='black', color='orange')
-        ax.set_xlabel('Value')
-        ax.set_ylabel('Density')
+        ax.hist(
+            h_sample,
+            bins=40,
+            alpha=0.5,
+            label="h_residues",
+            density=True,
+            edgecolor="black",
+        )
+        ax.hist(
+            z_sample,
+            bins=40,
+            alpha=0.5,
+            label=f"λ·z_pca (λ={lam})",
+            density=True,
+            edgecolor="black",
+            color="orange",
+        )
+        ax.set_xlabel("Value")
+        ax.set_ylabel("Density")
 
         # Find the result for this lambda
-        result = next((r for r in results if r['lambda'] == lam), None)
+        result = next((r for r in results if r["lambda"] == lam), None)
         if result:
-            ax.set_title(f'λ={lam}: {result["rel_contrib"]:.1%} contrib ({result["rating"].replace("✓ ", "").replace("○ ", "").replace("✗ ", "")})')
+            ax.set_title(
+                f"λ={lam}: {result['rel_contrib']:.1%} contrib ({result['rating'].replace('✓ ', '').replace('○ ', '').replace('✗ ', '')})"
+            )
         else:
-            ax.set_title(f'λ={lam}')
+            ax.set_title(f"λ={lam}")
         ax.legend(fontsize=8)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
     print_success(f"Saved visualization: {output_path}")
 
     return fig
@@ -272,50 +309,44 @@ def main():
         "--checkpoint",
         type=str,
         default="checkpoints/crossdocked_fullatom_cond.ckpt",
-        help="Path to model checkpoint"
+        help="Path to model checkpoint",
     )
     parser.add_argument(
         "--test_npz",
         type=str,
         default="data/real_testing_dataset_10_tests/test.npz",
-        help="Path to test dataset npz file"
+        help="Path to test dataset npz file",
     )
     parser.add_argument(
         "--test_esmc",
         type=str,
         default="data/real_testing_dataset_10_tests/test_esmc.npz",
-        help="Path to test ESM-C embeddings"
+        help="Path to test ESM-C embeddings",
     )
     parser.add_argument(
         "--pca_model",
         type=str,
         default="thesis_work/experiments/day6_pca_projection/pca_model_32d.pkl",
-        help="Path to PCA model"
+        help="Path to PCA model",
     )
     parser.add_argument(
         "--lambda_values",
         type=float,
-        nargs='+',
-        default=[0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0],
-        help="Lambda values to test"
+        nargs="+",
+        default=[0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0, 1.5, 2, 3, 4],
+        help="Lambda values to test",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         default="thesis_work/experiments/day6_pca_projection",
-        help="Output directory"
+        help="Output directory",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        default="cpu",
-        help="Device to use (cpu/cuda)"
+        "--device", type=str, default="cpu", help="Device to use (cpu/cuda)"
     )
     parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=2,
-        help="Batch size for dataloader"
+        "--batch_size", type=int, default=2, help="Batch size for dataloader"
     )
 
     args = parser.parse_args()
@@ -329,16 +360,20 @@ def main():
 
     # Load model
     print_header("LOADING CHECKPOINT")
-    model = LigandPocketDDPM.load_from_checkpoint(args.checkpoint, map_location=args.device)
+    model = LigandPocketDDPM.load_from_checkpoint(
+        args.checkpoint, map_location=args.device
+    )
     model.eval()
     print_success(f"Loaded checkpoint: {args.checkpoint}")
 
     # Load PCA model
     print_header("LOADING PCA MODEL")
-    with open(args.pca_model, 'rb') as f:
+    with open(args.pca_model, "rb") as f:
         pca_model = pickle.load(f)
     print_success(f"Loaded PCA: 960D → {pca_model.n_components_}D")
-    print_success(f"Variance explained: {pca_model.explained_variance_ratio_.sum() * 100:.2f}%")
+    print_success(
+        f"Variance explained: {pca_model.explained_variance_ratio_.sum() * 100:.2f}%"
+    )
 
     # Load dataset
     print_header("LOADING DATASET")
@@ -348,19 +383,23 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=0,
-        collate_fn=dataset.collate_fn
+        collate_fn=dataset.collate_fn,
     )
     print_success(f"Loaded {len(dataset)} test samples")
 
     # Extract latent representations
-    h_residues, z_esm_pca = extract_h_residues_and_pca(model, dataloader, pca_model, device=args.device)
+    h_residues, z_esm_pca = extract_h_residues_and_pca(
+        model, dataloader, pca_model, device=args.device
+    )
 
     if h_residues is None or z_esm_pca is None:
         print("ERROR: Failed to extract latent representations!")
         return None
 
     # Analyze lambda values
-    results, best_lambda = analyze_lambda_values(h_residues, z_esm_pca, args.lambda_values)
+    results, best_lambda = analyze_lambda_values(
+        h_residues, z_esm_pca, args.lambda_values
+    )
 
     # Create visualization
     output_path = Path(args.output_dir) / "optimal_lambda_analysis_v2.png"
@@ -368,21 +407,24 @@ def main():
 
     # Save results
     results_path = Path(args.output_dir) / "lambda_analysis_results_v2.pkl"
-    with open(results_path, 'wb') as f:
-        pickle.dump({
-            'results': results,
-            'best_lambda': best_lambda,
-            'h_residues_stats': {
-                'mean': h_residues.mean(),
-                'std': h_residues.std(),
-                'shape': h_residues.shape,
+    with open(results_path, "wb") as f:
+        pickle.dump(
+            {
+                "results": results,
+                "best_lambda": best_lambda,
+                "h_residues_stats": {
+                    "mean": h_residues.mean(),
+                    "std": h_residues.std(),
+                    "shape": h_residues.shape,
+                },
+                "z_esm_pca_stats": {
+                    "mean": z_esm_pca.mean(),
+                    "std": z_esm_pca.std(),
+                    "shape": z_esm_pca.shape,
+                },
             },
-            'z_esm_pca_stats': {
-                'mean': z_esm_pca.mean(),
-                'std': z_esm_pca.std(),
-                'shape': z_esm_pca.shape,
-            },
-        }, f)
+            f,
+        )
     print_success(f"Saved results: {results_path}")
 
     print_header("ANALYSIS COMPLETE")

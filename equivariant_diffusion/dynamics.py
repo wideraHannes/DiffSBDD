@@ -68,22 +68,33 @@ class EGNNDynamics(nn.Module):
         )
         self.edge_nf = 0 if self.edge_nf is None else self.edge_nf
 
-        # ESM-C FiLM conditioning network (optional)
-        # Takes global pocket embedding (960) and outputs additive modulation for joint_nf
-        # Using additive (residual) FiLM instead of multiplicative to preserve pretrained distribution
-        self.use_film = use_film
-        self.film_network = nn.Sequential(
-            nn.Linear(960, 2 * hidden_nf),
-            act_fn,
-            nn.Linear(2 * hidden_nf, hidden_nf),
-            act_fn,
-            nn.Linear(hidden_nf, joint_nf),  # Output only delta, not gamma+beta
-        )
-        # Note: FiLM initialization happens in _init_film_identity() method
-        # called from lightning_modules.py after model creation
+        # ============================================================================
+        # COMMENTED OUT: ESM-C FiLM conditioning network (replaced with PCA approach)
+        # ============================================================================
+        # self.use_film = use_film
+        # self.film_network = nn.Sequential(
+        #     nn.Linear(960, 2 * hidden_nf),
+        #     act_fn,
+        #     nn.Linear(2 * hidden_nf, hidden_nf),
+        #     act_fn,
+        #     nn.Linear(hidden_nf, joint_nf),
+        # )
+        # self.film_lambda = nn.Parameter(torch.tensor(0.01))
 
-        # Learnable scaling factor for FiLM effect
-        self.film_lambda = nn.Parameter(torch.tensor(0.01))
+        # ============================================================================
+        # PCA-based ESM-C pocket embedding approach
+        # ============================================================================
+        # Instead of learning projection via FiLM network, we use pre-trained PCA
+        # to project ESM-C embeddings from 960D to joint_nf dimensions
+        #
+        # Formula: h_residues = z_pocket + λ * z_esm_pca
+        # where:
+        #   z_pocket: encoded residue features (joint_nf dimensional)
+        #   z_esm_pca: PCA-projected ESM-C embeddings (960D -> joint_nf)
+        #   λ: fixed scaling factor (0.1)
+        self.use_pca = use_film  # Reuse flag for PCA approach
+        self.pca_model = None  # Will be loaded from pickle file
+        self.pca_lambda = 0.5  # Fixed scaling factor for PCA contribution
 
         if condition_time:
             dynamics_node_nf = joint_nf + 1
@@ -140,25 +151,46 @@ class EGNNDynamics(nn.Module):
 
         # embed atom features and residue features in a shared space
         h_atoms = self.atom_encoder(h_atoms)
-        h_residues = self.residue_encoder(h_residues)
+        h_residues = self.residue_encoder(
+            h_residues
+        )  # z_pocket: [num_residues, joint_nf]
 
-        # Apply ESM-C FiLM conditioning ONLY to residues (after encoding)
-        # This avoids modulating noisy ligand features and preserves pretrained distribution
-        if self.use_film and pocket_emb is not None:
-            # pocket_emb shape: [batch_size, 960]
-            delta = self.film_network(pocket_emb)  # [batch_size, joint_nf]
+        # ============================================================================
+        # COMMENTED OUT: FiLM-based ESM-C conditioning
+        # ============================================================================
+        # if self.use_film and pocket_emb is not None:
+        #     delta = self.film_network(pocket_emb)  # [batch_size, joint_nf]
+        #     delta_expanded = delta[mask_residues.long()]  # [num_residues, joint_nf]
+        #     h_residues = h_residues + self.film_lambda * delta_expanded
+        #     print(f"FiLM λ: {self.film_lambda.item():.4f}, delta mean: {delta.mean().item():.4f}")
 
-            # Expand delta to per-residue node using mask_residues
-            delta_expanded = delta[mask_residues.long()]  # [num_residues, joint_nf]
+        # ============================================================================
+        # PCA-based ESM-C pocket embedding
+        # ============================================================================
+        # Formula: h_residues = z_pocket + λ * z_esm_pca
+        if self.use_pca and pocket_emb is not None and self.pca_model is not None:
+            # pocket_emb shape: [batch_size, 960] (ESM-C embeddings)
 
-            # Apply additive FiLM with learnable scaling: h' = h + λ * delta
-            # λ starts at 0.01 (small effect) and delta starts at ~0 (zero init)
-            # Combined: nearly identity initialization but with gradient flow
-            h_residues = h_residues + self.film_lambda * delta_expanded
+            # Project ESM-C embeddings using PCA: 960D -> joint_nf
+            # Note: PCA model should be trained to project to joint_nf dimensions
+            z_esm_pca = self.pca_model.transform(
+                pocket_emb.cpu().numpy()
+            )  # [batch_size, joint_nf]
+            z_esm_pca = torch.from_numpy(z_esm_pca).float().to(pocket_emb.device)
 
-            # Monitor FiLM activation (optional debug info)
+            # Expand to per-residue using mask_residues
+            z_esm_pca_expanded = z_esm_pca[
+                mask_residues.long()
+            ]  # [num_residues, joint_nf]
+
+            # Add scaled PCA embeddings to encoded residue features
+            h_residues = h_residues + self.pca_lambda * z_esm_pca_expanded
+
+            # Monitor PCA contribution (optional debug info)
             print(
-                f"FiLM λ: {self.film_lambda.item():.4f}, delta mean: {delta.mean().item():.4f}"
+                f"PCA λ: {self.pca_lambda:.4f}, "
+                f"z_esm_pca mean: {z_esm_pca_expanded.mean().item():.4f}, "
+                f"z_esm_pca std: {z_esm_pca_expanded.std().item():.4f}"
             )
 
         # combine the two node types AFTER FiLM is applied to residues

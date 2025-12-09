@@ -195,6 +195,10 @@ class LigandPocketDDPM(pl.LightningModule):
             virtual_node_idx=self.lig_type_encoder[symbol] if virtual_nodes else None,
         )
 
+        # Load PCA model for ESM-C pocket embedding projection
+        # This replaces the learned FiLM network with pre-trained PCA projection
+        self._load_pca_model()
+
         self.auxiliary_loss = auxiliary_loss
         self.lj_rm = self.dataset_info["lennard_jones_rm"]
         if self.auxiliary_loss:
@@ -317,8 +321,15 @@ class LigandPocketDDPM(pl.LightningModule):
 
         CRITICAL: We keep default PyTorch initialization for hidden layers!
         Only the final output is set to identity. This ensures gradients can flow.
+
+        NOTE: When using PCA approach, film_network doesn't exist. Skip initialization.
         """
         import torch.nn as nn
+
+        # Check if using PCA approach (film_network doesn't exist)
+        if not hasattr(self.ddpm.dynamics, 'film_network'):
+            print("Skipping FiLM initialization (using PCA approach instead)")
+            return
 
         film = self.ddpm.dynamics.film_network
         with torch.no_grad():
@@ -336,6 +347,43 @@ class LigandPocketDDPM(pl.LightningModule):
             "FiLM initialized to near-identity: final_layer=0, lambda=0.01 → small delta → h'≈h"
         )
 
+    def _load_pca_model(self):
+        """
+        Load pre-trained PCA model for ESM-C pocket embedding projection.
+
+        The PCA model projects ESM-C embeddings from 960D to joint_nf dimensions.
+        This replaces the learned FiLM projection network with a pre-trained,
+        fixed PCA transformation.
+
+        Path: thesis_work/experiments/day6_pca_projection/pca_model_32d.pkl
+        """
+        import pickle
+        from pathlib import Path
+
+        # Path to pre-trained PCA model
+        pca_path = Path(
+            "/Users/hanneswidera/Uni/Master/thesis/DiffSBDD/"
+            "thesis_work/experiments/day6_pca_projection/pca_model_32d.pkl"
+        )
+
+        if not pca_path.exists():
+            print(f"Warning: PCA model not found at {pca_path}")
+            print("  Skipping PCA loading. Model will run without PCA embeddings.")
+            self.ddpm.dynamics.pca_model = None
+            return
+
+        with open(pca_path, "rb") as f:
+            self.ddpm.dynamics.pca_model = pickle.load(f)
+
+        print(f"Loaded PCA model from {pca_path}")
+        print(
+            f"  PCA dimensions: 960D -> {self.ddpm.dynamics.pca_model.n_components_}D"
+        )
+        print(
+            f"  Variance explained: {self.ddpm.dynamics.pca_model.explained_variance_ratio_.sum() * 100:.2f}%"
+        )
+        print(f"  PCA lambda (scaling factor): {self.ddpm.dynamics.pca_lambda}")
+
     def _init_film_random(self):
         """
         Initialize FiLM network with random weights (PyTorch default initialization).
@@ -345,8 +393,15 @@ class LigandPocketDDPM(pl.LightningModule):
         2. Identity initialization is necessary for stable training
 
         If random init performs similarly to identity, it indicates FiLM is not being used.
+
+        NOTE: When using PCA approach, film_network doesn't exist. Skip initialization.
         """
         import torch.nn as nn
+
+        # Check if using PCA approach (film_network doesn't exist)
+        if not hasattr(self.ddpm.dynamics, 'film_network'):
+            print("Skipping FiLM random initialization (using PCA approach instead)")
+            return
 
         film = self.ddpm.dynamics.film_network
         with torch.no_grad():

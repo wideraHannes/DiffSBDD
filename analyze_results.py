@@ -156,8 +156,14 @@ def compute_wasserstein_distances(generated_props, ground_truth_df):
     return distances
 
 
-def analyze_results(results_dir, output_file=None, ground_truth_file=None):
-    """Analyze generated molecules quality"""
+def analyze_results(results_dir, output_file=None, ground_truth_csv=None):
+    """Analyze generated molecules quality
+
+    Args:
+        results_dir: Directory containing generated SDF files
+        output_file: Path to save analysis results CSV
+        ground_truth_csv: Path to ground truth properties CSV for Wasserstein distance
+    """
 
     results_dir = Path(results_dir)
     processed_dir = results_dir / "processed"
@@ -301,20 +307,17 @@ def analyze_results(results_dir, output_file=None, ground_truth_file=None):
     # Add validity metrics
     summary.update(validity_metrics)
 
-    # Compute Wasserstein distances if ground truth provided
-    if ground_truth_file:
-        ground_truth_path = Path(ground_truth_file)
-        if ground_truth_path.exists():
-            logging.info(f"Computing Wasserstein distances to ground truth...")
-            try:
-                gt_df = pd.read_csv(ground_truth_path)
-                wasserstein_dists = compute_wasserstein_distances(properties, gt_df)
-                summary.update(wasserstein_dists)
-                logging.info(f"Computed {len(wasserstein_dists)} Wasserstein distances")
-            except Exception as e:
-                logging.warning(f"Could not compute Wasserstein distances: {e}")
-        else:
-            logging.warning(f"Ground truth file not found: {ground_truth_path}")
+    # Calculate Wasserstein distances if ground truth is provided
+    wasserstein_distances = {}
+    if ground_truth_csv is not None:
+        try:
+            ground_truth_df = pd.read_csv(ground_truth_csv)
+            logging.info(f"Loaded ground truth data from: {ground_truth_csv}")
+            wasserstein_distances = compute_wasserstein_distances(properties, ground_truth_df)
+            summary.update(wasserstein_distances)
+            logging.info("Calculated Wasserstein distances to ground truth")
+        except Exception as e:
+            logging.warning(f"Could not compute Wasserstein distances: {e}")
 
     # Print results
     print("\n" + "=" * 60)
@@ -358,13 +361,18 @@ def analyze_results(results_dir, output_file=None, ground_truth_file=None):
         if "diversity" in validity_metrics:
             print(f"  Diversity: {validity_metrics['diversity']:.3f}")
 
-    # Wasserstein distances
-    wasserstein_keys = [k for k in summary.keys() if k.endswith("_wasserstein")]
-    if wasserstein_keys:
-        print(f"\n📏 WASSERSTEIN DISTANCES TO GROUND TRUTH (↓ lower is better):")
-        for key in sorted(wasserstein_keys):
-            metric_name = key.replace("_wasserstein", "").upper()
-            print(f"  {metric_name}: {summary[key]:.4f}")
+    if wasserstein_distances:
+        print(f"\n📏 WASSERSTEIN DISTANCES (vs Ground Truth):")
+        if "qed_wasserstein" in wasserstein_distances:
+            print(f"  QED: {wasserstein_distances['qed_wasserstein']:.4f}")
+        if "sa_wasserstein" in wasserstein_distances:
+            print(f"  SA Score: {wasserstein_distances['sa_wasserstein']:.4f}")
+        if "logp_wasserstein" in wasserstein_distances:
+            print(f"  LogP: {wasserstein_distances['logp_wasserstein']:.4f}")
+        if "molwt_wasserstein" in wasserstein_distances:
+            print(f"  Molecular Weight: {wasserstein_distances['molwt_wasserstein']:.4f}")
+        if "numatoms_wasserstein" in wasserstein_distances:
+            print(f"  Num Atoms: {wasserstein_distances['numatoms_wasserstein']:.4f}")
 
     # Quality assessment
     print(f"\n🎯 QUALITY ASSESSMENT:")
@@ -477,11 +485,8 @@ def main():
         "--output", "-o", type=Path, default=None, help="Output CSV file for results"
     )
     parser.add_argument(
-        "--ground_truth",
-        "-g",
-        type=Path,
-        default=None,
-        help="Path to ground truth properties CSV for Wasserstein distance calculation",
+        "--ground_truth", type=Path, default=None,
+        help="Path to ground truth properties CSV for Wasserstein distance comparison"
     )
     args = parser.parse_args()
 

@@ -94,7 +94,7 @@ class EGNNDynamics(nn.Module):
         #   λ: fixed scaling factor (0.1)
         self.use_pca = use_film  # Reuse flag for PCA approach
         self.pca_model = None  # Will be loaded from pickle file
-        self.pca_lambda = 0.5  # Fixed scaling factor for PCA contribution
+        self.pca_lambda = 4  # Fixed scaling factor for PCA contribution
 
         if condition_time:
             dynamics_node_nf = joint_nf + 1

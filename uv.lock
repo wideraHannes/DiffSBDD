@@ -610,6 +610,7 @@ dependencies = [
     { name = "esm", version = "3.2.2.post2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "httpx" },
     { name = "imageio" },
+    { name = "meeko" },
     { name = "openbabel-wheel" },
     { name = "py3dmol" },
     { name = "pytorch-lightning" },
@@ -627,6 +628,7 @@ requires-dist = [
     { name = "esm", specifier = ">=3.2.1.post1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "imageio", specifier = ">=2.21.2" },
+    { name = "meeko", specifier = ">=0.7.1" },
     { name = "openbabel-wheel", specifier = ">=3.1.1.22" },
     { name = "py3dmol", specifier = ">=2.5.3" },
     { name = "pytorch-lightning", specifier = ">=1.7.4" },
@@ -1384,6 +1386,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/99/5b/a36a337438a14116b16480db471ad061c36c3694df7c2084a0da7ba538b7/matplotlib_inline-0.1.7.tar.gz", hash = "sha256:8423b23ec666be3d16e16b60bdd8ac4e86e840ebd1dd11a30b9f117f2fa0ab90", size = 8159, upload-time = "2024-04-15T13:44:44.803Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/8e/9ad090d3553c280a8060fbf6e24dc1c0c29704ee7d1c372f0c174aa59285/matplotlib_inline-0.1.7-py3-none-any.whl", hash = "sha256:df192d39a4ff8f21b1895d72e6a13f5fcc5099f00fa84384e0ea28c2cc0653ca", size = 9899, upload-time = "2024-04-15T13:44:43.265Z" },
+]
+
+[[package]]
+name = "meeko"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/9d/342bc5d09ba070496738e6b7dd37e2918ea8264df3a99bb1ed8a5a464dda/meeko-0.7.1.tar.gz", hash = "sha256:e3f4ca3a66db17a95d75905fa7a1bfb73971d2f16ec52eb68e5226bafe120b2d", size = 1427070, upload-time = "2025-10-23T00:08:06.492Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/c8/19f80438c2f285a109a42fde50a41ec7c06d7dfd257954da8d9c4e17677d/meeko-0.7.1-py3-none-any.whl", hash = "sha256:e50f5fdb9f94f44e6ee20616936cf033be9c93c7825bd69493a9cd9a3c5dc28d", size = 293954, upload-time = "2025-10-23T00:08:05.168Z" },
 ]
 
 [[package]]

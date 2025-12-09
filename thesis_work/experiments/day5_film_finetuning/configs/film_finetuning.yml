@@ -6,7 +6,7 @@
 # CRITICAL: Must use --resume flag to load pretrained EGNN weights!
 # Without --resume, you'll train a random model from scratch (which won't work).
 
-run_name: "film-finetuning-test-v10"
+run_name: "film-nextlevel-v110"
 logdir: "thesis_work/experiments/day5_film_finetuning/outputs"
 wandb_params:
   mode: "online"
@@ -25,7 +25,7 @@ film_only_training: true
 
 # Training - optimized for FiLM-only
 batch_size: 8
-lr: 5.0e-3 # Higher LR ok for small adapter
+lr: 1.0e-3 # Higher LR ok for small adapter
 n_epochs: 25 # Much fewer epochs needed
 num_workers: 4
 gpus: 1
@@ -61,14 +61,14 @@ diffusion_params:
   normalize_factors: [1, 4]
 
 # Evaluation
-eval_epochs: 10
+eval_epochs: 30
 visualize_sample_epoch: 0 # Set to 0 to disable, or N to visualize every N epochs
 visualize_chain_epoch: 0 # Set to 0 to disable, or N to visualize every N epochs
 eval_params:
-  n_eval_samples: 5 # Reduced for faster evaluation
-  eval_batch_size: 3
+  n_eval_samples: 3 # Reduced for faster evaluation
+  eval_batch_size: 1
   smiles_file: "data/real_testing_dataset_10_tests/train_smiles.npy"
-  n_visualize_samples: 3
+  n_visualize_samples: 1
   keep_frames: 100
 
 # Other

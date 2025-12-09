@@ -213,23 +213,36 @@ class LigandPocketDDPM(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.film_only_training:
-            # Freeze all EGNN parameters
+            # Freeze all parameters first
             for p in self.ddpm.parameters():
                 p.requires_grad = False
-            # Unfreeze only FiLM network
+
+            # Unfreeze FiLM network
             for p in self.ddpm.dynamics.film_network.parameters():
                 p.requires_grad = True
+            self.ddpm.dynamics.film_lambda.requires_grad = True
+
+            """ # Unfreeze EGNN
+            for p in self.ddpm.dynamics.egnn.parameters():
+                p.requires_grad = True """
+
             # Count trainable params
             trainable = sum(
                 p.numel() for p in self.ddpm.parameters() if p.requires_grad
             )
-            print(f"FiLM-only training: {trainable:,} trainable parameters")
+            print(f"\nFiLM + EGNN training: {trainable:,} trainable parameters\n")
+
+            # Collect all trainable params
+            trainable_params = [p for p in self.ddpm.parameters() if p.requires_grad]
+
             return torch.optim.AdamW(
-                self.ddpm.dynamics.film_network.parameters(),
+                trainable_params,
                 lr=self.lr,
                 amsgrad=True,
                 weight_decay=1e-6,
             )
+
+        # Full model training
         return torch.optim.AdamW(
             self.ddpm.parameters(), lr=self.lr, amsgrad=True, weight_decay=1e-12
         )
@@ -241,7 +254,7 @@ class LigandPocketDDPM(pl.LightningModule):
         device="cpu",
         film_only_training=False,
         film_mode="identity",
-        use_film=True
+        use_film=True,
     ):
         """
         Load pretrained checkpoint with FiLM configuration for baseline experiments.
@@ -287,7 +300,9 @@ class LigandPocketDDPM(pl.LightningModule):
             model._init_film_random()
             print("FiLM enabled with random init (Baseline 3: Negative control)")
         else:
-            raise ValueError(f"Unknown film_mode: {film_mode}. Use 'identity' or 'random'")
+            raise ValueError(
+                f"Unknown film_mode: {film_mode}. Use 'identity' or 'random'"
+            )
 
         return model.to(device)
 
@@ -307,19 +322,19 @@ class LigandPocketDDPM(pl.LightningModule):
 
         film = self.ddpm.dynamics.film_network
         with torch.no_grad():
-            # Keep default initialization for hidden layers (needed for gradient flow!)
-            # Only modify the final layer to produce identity output
-            final_layer = film[-1]  # Last Linear layer
-            joint_nf = final_layer.out_features // 2
+            # Keep first layer with default initialization for gradient flow!
+            # Only zero the final layer to ensure delta starts near 0
+            nn.init.zeros_(
+                film[2].weight
+            )  # Final linear layer (index 2, after activation)
+            nn.init.zeros_(film[2].bias)
 
-            # Zero the final layer weights and bias
-            nn.init.zeros_(final_layer.weight)
-            nn.init.zeros_(final_layer.bias)
+            # Initialize lambda to small non-zero value for gradient flow
+            self.ddpm.dynamics.film_lambda.data.fill_(0.01)
 
-            # Set final layer bias to produce identity: gamma=1, beta=0
-            final_layer.bias.data[:joint_nf] = 1.0  # gamma = 1
-            final_layer.bias.data[joint_nf:] = 0.0  # beta = 0
-        print("FiLM initialized to identity (gamma=1, beta=0)")
+        print(
+            "FiLM initialized to near-identity: final_layer=0, lambda=0.01 → small delta → h'≈h"
+        )
 
     def _init_film_random(self):
         """
@@ -644,7 +659,9 @@ class LigandPocketDDPM(pl.LightningModule):
             if "/train" in key and value is not None:
                 # Extract metric name (e.g., "loss/train" -> "loss")
                 metric_name = key.split("/")[0]
-                epoch_summary[f"epoch_avg_{metric_name}"] = value.item() if hasattr(value, 'item') else value
+                epoch_summary[f"epoch_avg_{metric_name}"] = (
+                    value.item() if hasattr(value, "item") else value
+                )
 
         # Log to wandb as epoch-level metrics
         if epoch_summary:
@@ -666,7 +683,9 @@ class LigandPocketDDPM(pl.LightningModule):
             if "/val" in key and value is not None:
                 # Extract metric name (e.g., "loss/val" -> "loss")
                 metric_name = key.split("/")[0]
-                val_summary[f"epoch_avg_val_{metric_name}"] = value.item() if hasattr(value, 'item') else value
+                val_summary[f"epoch_avg_val_{metric_name}"] = (
+                    value.item() if hasattr(value, "item") else value
+                )
 
         # Log to wandb as epoch-level validation metrics
         if val_summary:

@@ -192,20 +192,24 @@ if __name__ == "__main__":
             print(f"  - {k}")
         print(f"Unexpected keys: {len(unexpected)}")
 
-        # Verify FiLM is initialized to identity (gamma=1, beta=0)
+        # Verify FiLM is initialized to identity (delta=0, lambda=0)
         film = pl_module.ddpm.dynamics.film_network
-        final_layer = film[-1]
-        joint_nf = final_layer.out_features // 2
-        gamma_vals = final_layer.bias.data[:joint_nf]
-        beta_vals = final_layer.bias.data[joint_nf:]
-        print(f"\nFiLM initialization check:")
-        print(f"  Gamma mean: {gamma_vals.mean():.4f} (expected: 1.0000)")
-        print(f"  Gamma std:  {gamma_vals.std():.4f} (expected: 0.0000)")
-        print(f"  Beta mean:  {beta_vals.mean():.4f} (expected: 0.0000)")
-        print(f"  Beta std:   {beta_vals.std():.4f} (expected: 0.0000)")
+        film_lambda = pl_module.ddpm.dynamics.film_lambda.item()
+
+        # Check if network outputs zeros (for additive FiLM)
+        with torch.no_grad():
+            test_input = torch.randn(1, 960)
+            delta = film(test_input)
+            delta_mean = delta.mean().item()
+            delta_std = delta.std().item()
+
+        print(f"\nFiLM initialization check (additive):")
+        print(f"  Lambda: {film_lambda:.4f} (expected: 0.0000)")
+        print(f"  Delta mean: {delta_mean:.4f} (expected: ~0.0000)")
+        print(f"  Delta std:  {delta_std:.4f} (expected: ~0.0000)")
 
         # Verify initialization is correct
-        if abs(gamma_vals.mean() - 1.0) < 0.01 and gamma_vals.std() < 0.01 and abs(beta_vals.mean()) < 0.01:
+        if abs(film_lambda) < 0.01 and abs(delta_mean) < 0.01 and delta_std < 0.01:
             print("✅ FiLM correctly initialized to identity!")
         else:
             print("⚠️  WARNING: FiLM NOT initialized to identity! Training may fail.")

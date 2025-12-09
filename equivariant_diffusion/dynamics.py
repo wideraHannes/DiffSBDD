@@ -69,13 +69,21 @@ class EGNNDynamics(nn.Module):
         self.edge_nf = 0 if self.edge_nf is None else self.edge_nf
 
         # ESM-C FiLM conditioning network (optional)
-        # Takes global pocket embedding (960) and outputs scale/shift for joint_nf
+        # Takes global pocket embedding (960) and outputs additive modulation for joint_nf
+        # Using additive (residual) FiLM instead of multiplicative to preserve pretrained distribution
         self.use_film = use_film
         self.film_network = nn.Sequential(
-            nn.Linear(960, hidden_nf),
+            nn.Linear(960, 2 * hidden_nf),
             act_fn,
-            nn.Linear(hidden_nf, 2 * joint_nf),
+            nn.Linear(2 * hidden_nf, hidden_nf),
+            act_fn,
+            nn.Linear(hidden_nf, joint_nf),  # Output only delta, not gamma+beta
         )
+        # Note: FiLM initialization happens in _init_film_identity() method
+        # called from lightning_modules.py after model creation
+
+        # Learnable scaling factor for FiLM effect
+        self.film_lambda = nn.Parameter(torch.tensor(0.01))
 
         if condition_time:
             dynamics_node_nf = joint_nf + 1
@@ -131,41 +139,32 @@ class EGNNDynamics(nn.Module):
         h_residues = xh_residues[:, self.n_dims :].clone()
 
         # embed atom features and residue features in a shared space
-
-        # potentiell haben wir hier ein ESM-C embedding 960 Dim gross
-        # 2 möglichkeiten:
-        # wir scheissen auf deren h_residues und tauschen aus durch unser ding
         h_atoms = self.atom_encoder(h_atoms)
         h_residues = self.residue_encoder(h_residues)
-        # esmc_embedding = self.esm_encoder(h_residues)
 
-        # combine the two node types
-        x = torch.cat((x_atoms, x_residues), dim=0)
-        # @PLAN h_residues is the pocket we can first step
-        # Wir blähen das h unten einfach auf mit einen grossen Vector von h_residues
-        h = torch.cat((h_atoms, h_residues), dim=0)
-        mask = torch.cat([mask_atoms, mask_residues])
-
-        # Apply ESM-C FiLM conditioning if pocket embedding is provided (optional)
+        # Apply ESM-C FiLM conditioning ONLY to residues (after encoding)
+        # This avoids modulating noisy ligand features and preserves pretrained distribution
         if self.use_film and pocket_emb is not None:
             # pocket_emb shape: [batch_size, 960]
-            # Expand to match h: [num_nodes, 960] by repeating for each node in batch
-            film_params = self.film_network(pocket_emb)  # [batch_size, 2*joint_nf]
-            gamma, beta = torch.chunk(
-                film_params, 2, dim=-1
-            )  # each [batch_size, joint_nf]
+            delta = self.film_network(pocket_emb)  # [batch_size, joint_nf]
 
-            # gamma is 1 and beta is 0 initialization print changing values e.g avg
+            # Expand delta to per-residue node using mask_residues
+            delta_expanded = delta[mask_residues.long()]  # [num_residues, joint_nf]
+
+            # Apply additive FiLM with learnable scaling: h' = h + λ * delta
+            # λ starts at 0.01 (small effect) and delta starts at ~0 (zero init)
+            # Combined: nearly identity initialization but with gradient flow
+            h_residues = h_residues + self.film_lambda * delta_expanded
+
+            # Monitor FiLM activation (optional debug info)
             print(
-                f"FiLM gamma mean: {gamma.mean().item():.4f}, beta mean: {beta.mean().item():.4f}"
+                f"FiLM λ: {self.film_lambda.item():.4f}, delta mean: {delta.mean().item():.4f}"
             )
 
-            # Expand to per-node
-            gamma_expanded = gamma[mask.long()]  # [num_nodes, joint_nf]
-            beta_expanded = beta[mask.long()]  # [num_nodes, joint_nf]
-
-            # Apply FiLM: h_new = gamma * h + beta
-            h = gamma_expanded * h + beta_expanded
+        # combine the two node types AFTER FiLM is applied to residues
+        x = torch.cat((x_atoms, x_residues), dim=0)
+        h = torch.cat((h_atoms, h_residues), dim=0)
+        mask = torch.cat([mask_atoms, mask_residues])
 
         if self.condition_time:
             if np.prod(t.size()) == 1:

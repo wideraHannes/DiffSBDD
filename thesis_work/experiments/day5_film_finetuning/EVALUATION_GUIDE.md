@@ -1,6 +1,7 @@
 # Day 5 Evaluation Guide: Adding Models to Comparison Table
 
 ## 🎯 Goal
+
 Compare different models using Wasserstein distances to ground truth molecules.
 
 **Lower Wasserstein distance = Better (closer to real drug-like molecules)**
@@ -9,18 +10,19 @@ Compare different models using Wasserstein distances to ground truth molecules.
 
 ## 📊 Current Baselines
 
-| Model | Description | Status |
-|-------|-------------|--------|
-| `no_film` | Pretrained without FiLM | ✅ Done |
-| `identity` | Identity FiLM (γ=1, β=0) | ✅ Done |
-| `random` | Random FiLM (negative control) | ✅ Done |
-| `film_trained` | **Your trained FiLM model** | 🔜 Next step! |
+| Model          | Description                    | Status        |
+| -------------- | ------------------------------ | ------------- |
+| `no_film`      | Pretrained without FiLM        | ✅ Done       |
+| `identity`     | Identity FiLM (γ=1, β=0)       | ✅ Done       |
+| `random`       | Random FiLM (negative control) | ✅ Done       |
+| `film_trained` | **Your trained FiLM model**    | 🔜 Next step! |
 
 ---
 
 ## 🚀 Quick Workflow: Add Trained FiLM to Comparison
 
 ### Step 0: Train Your Model
+
 ```bash
 # Train FiLM using your config
 uv run python train.py --config thesis_work/experiments/day5_film_finetuning/configs/film_finetuning.yml
@@ -28,7 +30,10 @@ uv run python train.py --config thesis_work/experiments/day5_film_finetuning/con
 # This creates checkpoint: lightning_logs/version_X/checkpoints/epoch=Y-step=Z.ckpt
 ```
 
+# thesis_work/experiments/day5_film_finetuning/outputs/film-nextlevel-v110/checkpoints/last.ckpt
+
 ### Step 1: Generate Molecules with Trained Model
+
 ```bash
 uv run python test.py lightning_logs/version_X/checkpoints/epoch=Y-step=Z.ckpt \
     --test_dir data/dummy_testing_dataset_10_tests/test \
@@ -40,6 +45,7 @@ uv run python test.py lightning_logs/version_X/checkpoints/epoch=Y-step=Z.ckpt \
 ```
 
 ### Step 2: Analyze with Ground Truth (Calculates Wasserstein Distances)
+
 ```bash
 uv run python analyze_results.py \
     thesis_work/experiments/day5_film_finetuning/outputs/baseline_comparison_v2/film_trained \
@@ -47,12 +53,14 @@ uv run python analyze_results.py \
 ```
 
 ### Step 3: Update Comparison Table
+
 ```bash
 uv run python create_comparison_table.py \
     --baseline_dir thesis_work/experiments/day5_film_finetuning/outputs/baseline_comparison_v2
 ```
 
 ### Step 4: Check Results
+
 ```bash
 cat thesis_work/experiments/day5_film_finetuning/outputs/baseline_comparison_v2/comparison_table.csv
 ```
@@ -62,23 +70,25 @@ cat thesis_work/experiments/day5_film_finetuning/outputs/baseline_comparison_v2/
 ## 📈 Expected Results
 
 ### Before Training (Current Baselines)
+
 All three are similar because they use the same frozen pretrained EGNN:
 
-| Model | QED (W↓) | SA (W↓) | LogP (W↓) |
-|-------|----------|---------|-----------|
-| no_film | 0.0476 | 0.5712 | 0.8604 |
-| identity | 0.0663 | 0.7347 | 0.8815 |
-| random | 0.0766 | 0.5010 | 0.9566 |
+| Model    | QED (W↓) | SA (W↓) | LogP (W↓) |
+| -------- | -------- | ------- | --------- |
+| no_film  | 0.0476   | 0.5712  | 0.8604    |
+| identity | 0.0663   | 0.7347  | 0.8815    |
+| random   | 0.0766   | 0.5010  | 0.9566    |
 
 ### After Training (Expected)
+
 If FiLM training works, you should see **improvement**:
 
-| Model | QED (W↓) | SA (W↓) | LogP (W↓) | Result |
-|-------|----------|---------|-----------|--------|
-| no_film | 0.0476 | 0.5712 | 0.8604 | Baseline |
-| **film_trained** | **0.02-0.03** ✨ | **0.30-0.45** ✨ | **0.60-0.80** ✨ | **Better!** |
-| identity | 0.0663 | 0.7347 | 0.8815 | Same as baseline |
-| random | 0.0766 | 0.5010 | 0.9566 | Worse (garbage) |
+| Model            | QED (W↓)         | SA (W↓)          | LogP (W↓)        | Result           |
+| ---------------- | ---------------- | ---------------- | ---------------- | ---------------- |
+| no_film          | 0.0476           | 0.5712           | 0.8604           | Baseline         |
+| **film_trained** | **0.02-0.03** ✨ | **0.30-0.45** ✨ | **0.60-0.80** ✨ | **Better!**      |
+| identity         | 0.0663           | 0.7347           | 0.8815           | Same as baseline |
+| random           | 0.0766           | 0.5010           | 0.9566           | Worse (garbage)  |
 
 **Success criteria**: `film_trained` has lower Wasserstein distances than `no_film`
 
@@ -113,6 +123,7 @@ thesis_work/experiments/day5_film_finetuning/
 ## 🔧 Core Commands Reference
 
 ### Regenerate Comparison (Anytime)
+
 If you want to update the comparison table without regenerating molecules:
 
 ```bash
@@ -126,11 +137,13 @@ uv run python create_comparison_table.py \
 ```
 
 ### Check Ground Truth Stats
+
 ```bash
 cat data/dummy_testing_dataset_10_tests/analysis/test_ground_truth_properties.csv
 ```
 
 Ground truth (10 real ligands):
+
 - QED: 0.452 ± 0.244
 - SA Score: 3.86 ± 1.36
 - LogP: 0.72 ± 2.42
@@ -144,11 +157,13 @@ Ground truth (10 real ligands):
 **What it measures**: How different two probability distributions are
 
 **Example**:
+
 - Ground truth QED distribution: [0.3, 0.5, 0.6, 0.4, 0.7, ...]
 - Generated QED distribution: [0.4, 0.5, 0.5, 0.6, 0.6, ...]
 - Wasserstein distance: 0.0476 (very similar!)
 
 **Interpretation**:
+
 - **0.00-0.05**: Excellent match to ground truth
 - **0.05-0.10**: Good match
 - **0.10-0.20**: Moderate match
@@ -159,6 +174,7 @@ Ground truth (10 real ligands):
 ## 🎓 Research Question Validation
 
 Your thesis hypothesis:
+
 > **"Can ESM-C evolutionary context improve structure-based drug design?"**
 
 **How to validate with this evaluation**:
@@ -168,6 +184,7 @@ Your thesis hypothesis:
 3. 📊 Compare: If `film_trained` < `no_film` → **ESM-C helps!** ✨
 
 **Statistical significance**:
+
 - Run on larger test set (100+ pockets)
 - Calculate confidence intervals
 - Perform t-test or Wilcoxon test
@@ -177,19 +194,25 @@ Your thesis hypothesis:
 ## 🐛 Troubleshooting
 
 ### Problem: "Ground truth file not found"
+
 **Solution**:
+
 ```bash
 uv run python prepare_dataset_analysis.py data/dummy_testing_dataset_10_tests --split test
 ```
 
 ### Problem: "Comparison table doesn't include my model"
+
 **Solution**: Make sure `analysis_summary.csv` exists in your model's directory. Run step 2 first.
 
 ### Problem: "All models have similar Wasserstein distances"
+
 **Answer**: This is expected for **untrained** models! They all use the same pretrained EGNN. After training FiLM, you should see improvement.
 
 ### Problem: "Trained model is WORSE than baseline"
+
 **Possible causes**:
+
 - Training didn't converge yet (check loss curves)
 - Learning rate too high (molecules got worse)
 - ESM-C embeddings not properly loaded

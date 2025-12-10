@@ -47,6 +47,8 @@ def create_comparison_table(baseline_dirs, output_file):
             row["MolWt (W↓)"] = df["molwt_wasserstein"].values[0]
         if "numatoms_wasserstein" in df.columns:
             row["NumAtoms (W↓)"] = df["numatoms_wasserstein"].values[0]
+        if "vina_wasserstein" in df.columns:
+            row["Vina (W↓)"] = df["vina_wasserstein"].values[0]
 
         # Validity metrics
         if "validity" in df.columns:
@@ -65,6 +67,8 @@ def create_comparison_table(baseline_dirs, output_file):
             row["SA (avg)"] = df["avg_sa_score"].values[0]
         if "avg_logp" in df.columns:
             row["LogP (avg)"] = df["avg_logp"].values[0]
+        if "avg_vina_score" in df.columns:
+            row["Vina (avg)"] = df["avg_vina_score"].values[0]
 
         results.append(row)
 

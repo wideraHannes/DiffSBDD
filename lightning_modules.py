@@ -157,6 +157,20 @@ class LigandPocketDDPM(pl.LightningModule):
         self.aa_nf = len(self.pocket_type_decoder)
         self.x_dims = 3
 
+        # Get pca_lambda from config (default 4.0)
+        pca_lambda = egnn_params.__dict__.get("pca_lambda", 4.0)
+        print(f"\n{'='*80}")
+        print(f"INITIALIZING EGNN DYNAMICS")
+        print(f"{'='*80}")
+        print(f"ESM-C PCA scaling factor (pca_lambda): {pca_lambda}")
+        if pca_lambda == 0.0:
+            print("  → ESM-C contribution DISABLED (ablation mode)")
+        elif pca_lambda == 1.0:
+            print("  → ESM-C contribution at 1:1 scale (no scaling)")
+        else:
+            print(f"  → ESM-C contribution scaled by {pca_lambda}x")
+        print(f"{'='*80}\n")
+
         net_dynamics = EGNNDynamics(
             atom_nf=self.atom_nf,
             residue_nf=self.aa_nf,
@@ -179,6 +193,7 @@ class LigandPocketDDPM(pl.LightningModule):
             update_pocket_coords=(self.mode == "joint"),
             reflection_equivariant=egnn_params.reflection_equivariant,
             edge_embedding_dim=egnn_params.__dict__.get("edge_embedding_dim"),
+            pca_lambda=pca_lambda,
         )
 
         self.ddpm = ddpm_models[self.mode](
@@ -259,6 +274,7 @@ class LigandPocketDDPM(pl.LightningModule):
         film_only_training=False,
         film_mode="identity",
         use_film=True,
+        pca_lambda=None,
     ):
         """
         Load pretrained checkpoint with FiLM configuration for baseline experiments.
@@ -271,11 +287,13 @@ class LigandPocketDDPM(pl.LightningModule):
                 - "identity": gamma=1, beta=0 (Baseline 2: no-op verification)
                 - "random": Random initialization (Baseline 3: negative control)
             use_film: If False, bypass FiLM entirely (Baseline 1: pretrained only)
+            pca_lambda: If provided, override the PCA lambda scaling factor
 
         The pretrained checkpoint doesn't have FiLM weights, so we:
         1. Load with strict=False (ignores missing film_network keys)
         2. Initialize FiLM based on film_mode parameter
         3. Optionally disable FiLM with use_film=False
+        4. Optionally override pca_lambda for ablation studies
         """
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
         hparams = ckpt["hyper_parameters"]
@@ -307,6 +325,16 @@ class LigandPocketDDPM(pl.LightningModule):
             raise ValueError(
                 f"Unknown film_mode: {film_mode}. Use 'identity' or 'random'"
             )
+
+        # Override pca_lambda if provided
+        if pca_lambda is not None:
+            original_lambda = model.ddpm.dynamics.pca_lambda
+            model.ddpm.dynamics.pca_lambda = pca_lambda
+            print(f"Overriding PCA lambda: {original_lambda} → {pca_lambda}")
+            if pca_lambda == 0.0:
+                print("  ESM-C contribution DISABLED (ablation mode)")
+            elif pca_lambda == 1.0:
+                print("  ESM-C contribution at 1:1 scale (no scaling)")
 
         return model.to(device)
 

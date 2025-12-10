@@ -56,6 +56,12 @@ if __name__ == "__main__":
         default="identity",
         help="FiLM initialization mode: 'identity' (γ=1, β=0) or 'random' (Kaiming uniform)",
     )
+    parser.add_argument(
+        "--pca_lambda",
+        type=float,
+        default=None,
+        help="Override PCA lambda scaling factor (default: use checkpoint value). Set to 0.0 to disable ESM-C, 1.0 for no scaling.",
+    )
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -78,12 +84,15 @@ if __name__ == "__main__":
         film_mode = args.film_mode if args.use_film else "identity"
 
         logging.info(f"Loading with FiLM control: use_film={use_film}, film_mode={film_mode}")
+        if args.pca_lambda is not None:
+            logging.info(f"Overriding PCA lambda: {args.pca_lambda}")
         model = LigandPocketDDPM.load_pretrained_with_esmc(
             args.checkpoint,
             device=device,
             film_only_training=False,
             use_film=use_film,
             film_mode=film_mode,
+            pca_lambda=args.pca_lambda,
         )
     else:
         # Legacy path: load normally and init FiLM to identity

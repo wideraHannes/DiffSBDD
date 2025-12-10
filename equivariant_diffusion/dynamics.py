@@ -35,6 +35,7 @@ class EGNNDynamics(nn.Module):
         reflection_equivariant=True,
         edge_embedding_dim=None,
         use_film=True,
+        pca_lambda=4.0,
     ):
         super().__init__()
         self.mode = mode
@@ -91,10 +92,10 @@ class EGNNDynamics(nn.Module):
         # where:
         #   z_pocket: encoded residue features (joint_nf dimensional)
         #   z_esm_pca: PCA-projected ESM-C embeddings (960D -> joint_nf)
-        #   λ: fixed scaling factor (0.1)
+        #   λ: scaling factor (configurable, default 4.0, set to 1.0 to disable scaling)
         self.use_pca = use_film  # Reuse flag for PCA approach
         self.pca_model = None  # Will be loaded from pickle file
-        self.pca_lambda = 4  # Fixed scaling factor for PCA contribution
+        self.pca_lambda = pca_lambda  # Configurable scaling factor for PCA contribution
 
         if condition_time:
             dynamics_node_nf = joint_nf + 1

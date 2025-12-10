@@ -44,6 +44,15 @@ uv run python test.py lightning_logs/version_X/checkpoints/epoch=Y-step=Z.ckpt \
     --use_film
 ```
 
+uv run python test.py \
+ ./checkpoints/crossdocked_fullatom_cond.ckpt \
+ --test_dir ./data/dummy_testing_dataset_10_tests/test/ \
+ --outdir results/output_lambda2 \
+ --n_samples 20 \
+ --pca_lambda 2.0 \
+ --sanitize \
+ --batch_size 5
+
 ### Step 2: Analyze with Ground Truth (Calculates Wasserstein Distances)
 
 ```bash

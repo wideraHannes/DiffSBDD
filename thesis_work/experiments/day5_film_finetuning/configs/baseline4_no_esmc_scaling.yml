@@ -1,32 +1,26 @@
-# FiLM-Only Fine-Tuning Configuration
-# Loads pretrained checkpoint, freezes EGNN, trains only FiLM adapter
-#
-# USAGE: uv run python train.py --config <this_file> --resume checkpoints/crossdocked_fullatom_cond.ckpt
-#
-# CRITICAL: Must use --resume flag to load pretrained EGNN weights!
-# Without --resume, you'll train a random model from scratch (which won't work).
+# Baseline 4: No ESM-C Scaling (pca_lambda=0)
+# Purpose: Ablation study to verify ESM-C contribution by completely disabling it
+# Expected: Should perform worse than with ESM-C scaling, validating its importance
 
-run_name: "film-nextlevel-v110"
-logdir: "thesis_work/experiments/day5_film_finetuning/outputs"
+run_name: "baseline4-no-esmc-scaling-v1"
+logdir: "thesis_work/experiments/day5_film_finetuning/outputs/baselines"
 wandb_params:
   mode: "online"
   entity: null
-  group: "film-finetuning"
+  group: "film-baselines"
 
 # Dataset
 dataset: "crossdock" # Must match pretrained checkpoint (not crossdock_full)
 datadir: "data/real_testing_dataset_10_tests" # Data with correct 10-feature pocket encoding
 esmc_path: "data/real_testing_dataset_10_tests" # Directory with {split}_esmc.npz
 
-# FiLM-only training mode
-# When True: freezes EGNN, trains only FiLM (131K params)
-# FiLM is initialized to identity (gamma=1, beta=0) automatically
-film_only_training: true
+# Baseline configuration: pca_lambda=0 (no ESM-C contribution)
+film_only_training: false # Not training, just evaluating
 
-# Training - optimized for FiLM-only
+# Training - minimal for baseline
 batch_size: 8
-lr: 1.0e-3 # Higher LR ok for small adapter
-n_epochs: 25 # Much fewer epochs needed
+lr: 1.0e-3
+n_epochs: 1 # Just run 1 epoch for evaluation
 num_workers: 4
 gpus: 1
 clip_grad: true
@@ -52,7 +46,7 @@ egnn_params:
   sin_embedding: false
   aggregation_method: "sum"
   normalization_factor: 100
-  pca_lambda: 4.0 # ESM-C PCA scaling factor (set to 1.0 to disable scaling)
+  pca_lambda: 0.0 # ABLATION: Completely disable ESM-C scaling
 
 diffusion_params:
   diffusion_steps: 500
@@ -62,18 +56,18 @@ diffusion_params:
   normalize_factors: [1, 4]
 
 # Evaluation
-eval_epochs: 30
-visualize_sample_epoch: 0 # Set to 0 to disable, or N to visualize every N epochs
-visualize_chain_epoch: 0 # Set to 0 to disable, or N to visualize every N epochs
+eval_epochs: 1 # Evaluate immediately
+visualize_sample_epoch: 0
+visualize_chain_epoch: 0
 eval_params:
-  n_eval_samples: 3 # Reduced for faster evaluation
+  n_eval_samples: 5 # More samples for baseline
   eval_batch_size: 1
   smiles_file: "data/real_testing_dataset_10_tests/train_smiles.npy"
-  n_visualize_samples: 1
+  n_visualize_samples: 3
   keep_frames: 100
 
 # Other
-log_every_n_steps: 1 # Log train loss every step
+log_every_n_steps: 1
 enable_progress_bar: true
 num_sanity_val_steps: 0
 augment_rotation: false
